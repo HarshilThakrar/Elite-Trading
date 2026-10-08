@@ -1,0 +1,1 @@
+<?php echo \App\Models\Voucher::where("type", "Sales")->where("status", "Posted")->whereHasMorph("reference", [\App\Models\Invoice::class], function($q) { $q->whereHas("sale", function($q2) { $q2->where("customer_id", 1); }); })->count();

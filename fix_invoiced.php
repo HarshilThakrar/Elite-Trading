@@ -1,0 +1,1 @@
+<?php foreach(\App\Models\InvoiceItem::all() as $ii) { $inv = \App\Models\Invoice::find($ii->invoice_id); if(!$inv) continue; $si = \App\Models\SaleItem::where("sale_id", $inv->sale_id)->where("product_id", $ii->product_id)->first(); if($si) { $si->invoiced_qty += $ii->quantity; $si->save(); } } echo "Done";

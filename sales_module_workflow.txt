@@ -1,0 +1,50 @@
+======================================================
+ELITE TRADING ERP - SALES MODULE WORKFLOW EXPLANATION
+======================================================
+
+Ye "Sales" (Bikri) module ka pura workflow hai. Ye module aapke system (Elite Trading ERP) mein sales orders manage karne, nayi sales create karne, unka status update karne aur unke invoices (PDF/e-Invoice) generate karne ka kaam karta hai. 
+
+Mainly, ye workflow MVC (Model-View-Controller) pattern pe kaam karta hai.
+
+--- 🔄 PURA WORKFLOW (Step-by-Step) ---
+
+1. Sales List Dekhna: 
+Jab user Admin Panel se "Sales" pe click karta hai, toh request `SaleController` ke `index()` method pe jaati hai. Ye method database se saari sales fetch karke `index.blade.php` (View) ko bhejta hai, jahan ek table (DataTables) mein sab list ho jaata hai.
+
+2. Naya Sale Create Karna: 
+"Create New Sale" button pe click karne se `create()` method call hota hai jo forms ke liye Customers aur Products ki list nikalta hai. Jab user form bhar ke submit karta hai, toh request `store()` method pe aati hai. Ye method data validate karta hai (jaise unit price, quantity, taxes) aur usko database mein save kar deta hai.
+
+3. Status Update Karna: 
+Sales order create hone ke baad usko Approve, Dispatched ya Cancel karne ke liye `updateStatus()` method kaam aata hai.
+
+4. PDF Invoice Generate Karna: 
+Jab user "Download PDF" ya "e-Invoice" button pe click karta hai, toh `generatePdf()` method call hota hai. Ye `pdf.blade.php` ko as a template use karke, usme sale ka data dalta hai, aur DomPDF & FPDI packages ka use karke ek final PDF generate karta hai jisme company ka letterhead bhi automatically lag jata hai.
+
+
+--- 📂 HAR MODULE/FILE KA KAAM (Role of each file) ---
+
+1. SaleController.php (The Brain / Controller)
+Ye file backend ki main logic handle karti hai. Ye database (Services ke through) aur frontend (Views) ke beech ka bridge hai.
+- index(): Sales ka data laake list page ko dikhana.
+- create() & store(): Naye sales order ka form open karna aur submit hone par calculation karke save karna.
+- show(): Kisi ek specific sale ki detail dikhana.
+- updateStatus(): Order ka status (Approved, Dispatched, Cancelled) update karna.
+- generatePdf(): Ye sabse important method hai. Ye `pdf.blade.php` ko load karta hai, usey PDF mein convert karta hai, aur uske baad FPDI package ka use karke us invoice ko ek pre-designed Letterhead (Elite LH File 0326.pdf) ke upar print/merge karke user ko download karwata hai.
+
+2. index.blade.php (The List Page / View)
+Ye file aapke ERP ka frontend UI hai jahan saare sales orders ki list dikhti hai.
+- Isme ek HTML Table banayi gayi hai jo DataTables plugin (jQuery) ka use karti hai jisse searching aur sorting aasan ho jati hai.
+- Isme har order ki Details (Date, Invoice No, Customer, Amount, Status) dikhayi jaati hain.
+- Har row ke aage Action Buttons hain:
+  * View: Sale ki details dekhne ke liye.
+  * PDF (Red button): Normal Tax Invoice download karne ke liye.
+  * e-Invoice (Yellow button): e-Invoice (jisme QR code lag ke aata hai) download karne ke liye.
+
+3. pdf.blade.php (The Invoice Template)
+Ye ek design template hai jiska use karke final PDF Invoices banaye jaate hain. Ye user ko directly browser mein nahi dikhti, balki background mein PDF banne ke liye use hoti hai.
+- Isme pura Tax Invoice ka format design kiya gaya hai (Company detail, GST No, Consignee & Buyer details).
+- Ek table hai jisme kharide gaye items, HSN code, quantity, aur price calculate hota hai (CGST aur SGST automatically 9%-9% calculate hote hain).
+- Amount in Words (getIndianCurrency): Isme ek PHP function likha hai jo total paise ko English words mein convert karta hai.
+- QR Code Logic: Agar request e-Invoice ki hai ($is_einvoice == true), toh ye ek QR code generate karke invoice ke top par laga deta hai.
+
+======================================================

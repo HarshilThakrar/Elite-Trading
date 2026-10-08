@@ -1,0 +1,116 @@
+/* Elite Trading ERP Custom Styles */
+:root {
+    --primary-color: #144697;
+    --secondary-color: #FFFFFF;
+    --background-color: #F5F7FA;
+}
+
+body {
+    background-color: var(--background-color);
+    font-family: 'Inter', sans-serif;
+}
+
+.bg-primary-custom {
+    background-color: var(--primary-color) !important;
+}
+
+.text-primary-custom {
+    color: var(--primary-color) !important;
+}
+
+.btn-primary-custom {
+    background-color: var(--primary-color);
+    color: var(--secondary-color);
+    border: none;
+}
+
+.btn-primary-custom:hover {
+    background-color: #0f3573;
+    color: var(--secondary-color);
+}
+
+.card-custom {
+    border: none;
+    border-radius: 10px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+}
+
+.btn-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    transition: all 0.2s ease-in-out;
+    background-color: #f8f9fa;
+    color: #6c757d;
+    text-decoration: none;
+}
+
+.btn-action:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.08);
+}
+
+.btn-action-view:hover {
+    background-color: #e0f7fa;
+    color: #00acc1;
+    border-color: #b2ebf2;
+}
+
+.btn-action-edit:hover {
+    background-color: #fff8e1;
+    color: #ffb300;
+    border-color: #ffecb3;
+}
+
+.btn-action-delete:hover {
+    background-color: #ffebee;
+    color: #e53935;
+    border-color: #ffcdd2;
+}
+/* DataTables Premium Pagination */
+.dataTables_wrapper .dataTables_paginate {
+    margin-top: 15px;
+    padding-top: 10px;
+}
+
+.dataTables_wrapper .dataTables_paginate .paginate_button {
+    border-radius: 8px !important;
+    border: none !important;
+    padding: 6px 14px !important;
+    margin: 0 4px !important;
+    background: #f8f9fa !important;
+    color: #495057 !important;
+    font-weight: 500;
+    transition: all 0.3s ease-in-out !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+}
+
+.dataTables_wrapper .dataTables_paginate .paginate_button:hover {
+    background: #e9ecef !important;
+    color: var(--primary-color) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.06);
+}
+
+.dataTables_wrapper .dataTables_paginate .paginate_button.current,
+.dataTables_wrapper .dataTables_paginate .paginate_button.current:hover {
+    background: var(--primary-color) !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 8px rgba(20, 70, 151, 0.3) !important;
+    transform: translateY(-1px);
+}
+
+.dataTables_wrapper .dataTables_paginate .paginate_button.disabled,
+.dataTables_wrapper .dataTables_paginate .paginate_button.disabled:hover,
+.dataTables_wrapper .dataTables_paginate .paginate_button.disabled:active {
+    background: #f8f9fa !important;
+    color: #adb5bd !important;
+    box-shadow: none !important;
+    transform: none !important;
+    cursor: not-allowed !important;
+    opacity: 0.6;
+}
