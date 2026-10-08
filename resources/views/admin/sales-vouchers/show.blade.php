@@ -7,9 +7,12 @@
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2 class="h3 mb-0 text-gray-800">Sales Voucher: {{ $sales_voucher->voucher_number }}</h2>
-        <div>
-            <a href="{{ route('sales-vouchers.pdf', $sales_voucher->id) }}" class="btn btn-secondary shadow-sm">
+        <div class="d-flex gap-2 print-hide flex-wrap">
+            <a href="{{ route('sales-vouchers.pdf', $sales_voucher->id) }}" class="btn btn-primary shadow-sm" target="_blank" download>
                 <i class="ph ph-download-simple me-1"></i> Download PDF
+            </a>
+            <a href="{{ route('sales-vouchers.pdf', ['sales_voucher' => $sales_voucher->id, 'preview' => 1]) }}" class="btn btn-outline-primary shadow-sm" target="_blank">
+                <i class="ph ph-eye me-1"></i> Preview PDF
             </a>
             <a href="{{ route('sales-vouchers.index') }}" class="btn btn-light border shadow-sm">
                 <i class="ph ph-arrow-left me-1"></i> Back to List
@@ -98,7 +101,7 @@
                                     @endphp
                                     <tr>
                                         <td>
-                                            <a href="{{ route('ledgers.show', $entry->ledger_id ?? 0) }}">{{ $entry->ledger->name }}</a>
+                                            <a href="{{ route('ledgers.show', $entry->ledger_id ?? 0) }}">{{ $entry->ledger?->name ?? 'Ledger' }}</a>
                                         </td>
                                         <td class="text-end">{{ $entry->type === 'Dr' ? '₹'.number_format($entry->amount, 2) : '-' }}</td>
                                         <td class="text-end">{{ $entry->type === 'Cr' ? '₹'.number_format($entry->amount, 2) : '-' }}</td>

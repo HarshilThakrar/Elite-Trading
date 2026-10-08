@@ -8,11 +8,13 @@ use App\Models\Sale;
 use App\Models\Customer;
 use App\Models\Product;
 use App\Models\Purchase;
+use App\Models\Vendor;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\SalesExport;
 use App\Exports\CustomersExport;
 use App\Exports\ProductsExport;
 use App\Exports\PurchasesExport;
+use App\Exports\VendorsExport;
 
 class ExportController extends Controller
 {
@@ -39,5 +41,10 @@ class ExportController extends Controller
     public function exportPurchases()
     {
         return Excel::download(new PurchasesExport, 'purchases_report_' . date('Y_m_d') . '.xlsx');
+    }
+
+    public function exportVendors()
+    {
+        return Excel::download(new VendorsExport, 'vendors_list_' . date('Y_m_d') . '.xlsx');
     }
 }

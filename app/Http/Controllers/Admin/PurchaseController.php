@@ -90,8 +90,10 @@ class PurchaseController extends Controller
     public function generatePdf($id)
     {
         $purchase = $this->purchaseService->getPurchaseById($id);
+        $purchase->load(['vendor', 'items.product']);
         $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('admin.purchases.pdf', compact('purchase'));
-        return $pdf->download('Purchase_Order_' . $purchase->po_number . '.pdf');
+        $safePo = preg_replace('/[^A-Za-z0-9_\-]/', '_', $purchase->po_number ?? (string)$purchase->id);
+        return $pdf->download('Purchase_Order_' . $safePo . '.pdf');
     }
 
     public function generateGrnPdf($id)
@@ -103,7 +105,8 @@ class PurchaseController extends Controller
         }
 
         $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('admin.purchases.grn_pdf', compact('purchase'));
-        return $pdf->download('GRN_' . $purchase->po_number . '.pdf');
+        $safePo = str_replace(['/', '\\', ' '], ['-', '-', '_'], $purchase->po_number ?? (string)$purchase->id);
+        return $pdf->download('GRN_' . $safePo . '.pdf');
     }
 
     public function reorder($id)

@@ -53,24 +53,22 @@ class TrialBalanceController extends Controller
         $fromDate = $request->input('from_date', $defaultFrom);
         $toDate = $request->input('to_date', $defaultTo);
 
-        // Date Validation
+        // Clamp dates gracefully to Financial Year boundaries to prevent redirect loops or errors
         if ($financialYear) {
-            $errors = [];
             $fyStart = $financialYear->start_date->format('Y-m-d');
             $fyEnd = $financialYear->end_date->format('Y-m-d');
 
-            if ($fromDate < $fyStart) {
-                $errors[] = "From Date ({$fromDate}) cannot be before Financial Year start ({$fyStart}).";
+            if ($fromDate < $fyStart || $fromDate > $fyEnd) {
+                $fromDate = $fyStart;
             }
-            if ($toDate > $fyEnd) {
-                $errors[] = "To Date ({$toDate}) cannot be after Financial Year end ({$fyEnd}).";
+            if ($toDate > $fyEnd || $toDate < $fyStart) {
+                $toDate = min($financialYear->end_date, Carbon::now())->format('Y-m-d');
+                if ($toDate < $fromDate) {
+                    $toDate = $fyEnd;
+                }
             }
             if ($fromDate > $toDate) {
-                $errors[] = "From Date cannot be after To Date.";
-            }
-
-            if (!empty($errors)) {
-                return back()->withErrors($errors)->withInput();
+                $toDate = $fromDate;
             }
         }
 
@@ -83,7 +81,7 @@ class TrialBalanceController extends Controller
         ];
 
         $report = null;
-        if ($financialYear && empty($errors)) {
+        if ($financialYear) {
             $report = $this->trialBalanceService->getTrialBalance($financialYear, $fromDate, $toDate, $filters);
         }
 
@@ -95,11 +93,42 @@ class TrialBalanceController extends Controller
 
     public function getReportData(Request $request)
     {
+        $financialYears = FinancialYear::orderBy('start_date', 'desc')->get();
         $fyId = $request->input('financial_year_id');
         $financialYear = $fyId ? FinancialYear::find($fyId) : $this->financialYearService->getCurrentFinancialYear();
         
-        $fromDate = $request->input('from_date');
-        $toDate = $request->input('to_date');
+        if (!$financialYear) {
+            $financialYear = $financialYears->first();
+        }
+
+        if ($financialYear) {
+            $defaultFrom = $financialYear->start_date->format('Y-m-d');
+            $defaultTo = min($financialYear->end_date, Carbon::now())->format('Y-m-d');
+        } else {
+            $defaultFrom = date('Y-m-d');
+            $defaultTo = date('Y-m-d');
+        }
+
+        $fromDate = $request->input('from_date', $defaultFrom);
+        $toDate = $request->input('to_date', $defaultTo);
+
+        if ($financialYear) {
+            $fyStart = $financialYear->start_date->format('Y-m-d');
+            $fyEnd = $financialYear->end_date->format('Y-m-d');
+
+            if ($fromDate < $fyStart || $fromDate > $fyEnd) {
+                $fromDate = $fyStart;
+            }
+            if ($toDate > $fyEnd || $toDate < $fyStart) {
+                $toDate = min($financialYear->end_date, Carbon::now())->format('Y-m-d');
+                if ($toDate < $fromDate) {
+                    $toDate = $fyEnd;
+                }
+            }
+            if ($fromDate > $toDate) {
+                $toDate = $fromDate;
+            }
+        }
         
         $filters = [
             'account_group_id' => $request->input('account_group_id'),
@@ -124,8 +153,8 @@ class TrialBalanceController extends Controller
         $filename = "trial_balance_" . date('Ymd_His') . ".csv";
 
         $headers = [
-            "Content-type"        => "text/csv",
-            "Content-Disposition" => "attachment; filename=$filename",
+            "Content-type"        => "text/csv; charset=UTF-8",
+            "Content-Disposition" => "attachment; filename=\"$filename\"",
             "Pragma"              => "no-cache",
             "Cache-Control"       => "must-revalidate, post-check=0, pre-check=0",
             "Expires"             => "0"
@@ -133,9 +162,10 @@ class TrialBalanceController extends Controller
 
         $callback = function() use($data) {
             $file = fopen('php://output', 'w');
+            fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF)); // UTF-8 BOM
             fputcsv($file, ['Account Group', 'Ledger', 'Opening Dr', 'Opening Cr', 'Period Dr', 'Period Cr', 'Closing Dr', 'Closing Cr']);
 
-            $rows = $data['report']['rows'];
+            $rows = $data['report']['rows'] ?? [];
             foreach ($rows as $row) {
                 fputcsv($file, [
                     $row['ledger']->accountGroup->name ?? '-',
@@ -150,17 +180,19 @@ class TrialBalanceController extends Controller
             }
 
             // Grand Totals
-            $gt = $data['report']['grand_totals'];
-            fputcsv($file, [
-                'GRAND TOTAL',
-                '',
-                $gt['opening_dr'],
-                $gt['opening_cr'],
-                $gt['period_dr'],
-                $gt['period_cr'],
-                $gt['closing_dr'],
-                $gt['closing_cr']
-            ]);
+            if (!empty($data['report']['grand_totals'])) {
+                $gt = $data['report']['grand_totals'];
+                fputcsv($file, [
+                    'GRAND TOTAL',
+                    '',
+                    $gt['opening_dr'],
+                    $gt['opening_cr'],
+                    $gt['period_dr'],
+                    $gt['period_cr'],
+                    $gt['closing_dr'],
+                    $gt['closing_cr']
+                ]);
+            }
 
             fclose($file);
         };
@@ -174,7 +206,8 @@ class TrialBalanceController extends Controller
         
         if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class)) {
             $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('admin.trial-balance.pdf', $data);
-            return $pdf->download("trial_balance.pdf");
+            $pdf->setPaper('a4', 'landscape');
+            return $pdf->stream("trial_balance.pdf");
         }
         
         return view('admin.trial-balance.pdf', $data);

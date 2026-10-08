@@ -57,11 +57,20 @@ class PaymentVoucherController extends Controller
             return $this->isCashOrBank($ledger);
         });
 
+        // Safe fallback if account group IDs differ
+        if ($cashBankLedgers->isEmpty()) {
+            $cashBankLedgers = $ledgers;
+        }
+
         return view('admin.payment-vouchers.create', compact('ledgers', 'cashBankLedgers', 'settings'));
     }
 
     public function store(Request $request)
     {
+        if (empty($request->reference_date)) {
+            $request->merge(['reference_date' => null]);
+        }
+
         $rules = [
             'date' => 'required|date',
             'narration' => $this->settingsService->isNarrationRequired() ? 'required|string|max:255' : 'nullable|string|max:255',
@@ -165,6 +174,10 @@ class PaymentVoucherController extends Controller
     {
         $voucher = Voucher::where('type', 'Payment')->where('status', 'Draft')->findOrFail($id);
         
+        if (empty($request->reference_date)) {
+            $request->merge(['reference_date' => null]);
+        }
+
         $rules = [
             'date' => 'required|date',
             'narration' => $this->settingsService->isNarrationRequired() ? 'required|string|max:255' : 'nullable|string|max:255',
@@ -337,11 +350,12 @@ class PaymentVoucherController extends Controller
      */
     private function isCashOrBank(Ledger $ledger)
     {
-        $groupIds = [8, 9]; // Cash-in-Hand, Bank Accounts. This should ideally be fetched dynamically if names change.
+        $groupIds = [8, 9]; // Cash-in-Hand, Bank Accounts
+        $groupNames = ['cash-in-hand', 'bank accounts', 'cash in hand', 'bank account', 'bank od a/c', 'bank occ a/c'];
         
         $currentGroup = $ledger->accountGroup;
         while ($currentGroup) {
-            if (in_array($currentGroup->id, $groupIds)) {
+            if (in_array($currentGroup->id, $groupIds) || in_array(strtolower($currentGroup->name), $groupNames)) {
                 return true;
             }
             $currentGroup = $currentGroup->parent;

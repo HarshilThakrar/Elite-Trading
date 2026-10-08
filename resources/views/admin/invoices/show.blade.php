@@ -361,31 +361,31 @@
         }
 
         @media print {
-            .action-bar { display: none; }
+            .action-bar, .action-bar button, button, .print-hide { display: none !important; visibility: hidden !important; }
             body { 
-                background: none; 
-                padding: 0; 
-                display: block; 
+                background: none !important; 
+                padding: 0 !important; 
+                display: block !important; 
                 zoom: 0.88; /* Scaled slightly down to guarantee 1 page fit */
-                -webkit-print-color-adjust: exact; /* Chrome/Safari */
-                print-color-adjust: exact; /* Firefox/Standard */
+                -webkit-print-color-adjust: exact !important; /* Chrome/Safari */
+                print-color-adjust: exact !important; /* Firefox/Standard */
             }
             .invoice-wrapper { 
-                box-shadow: none; 
-                width: 100%; 
-                min-height: auto; 
-                margin: 0; 
+                box-shadow: none !important; 
+                width: 100% !important; 
+                min-height: auto !important; 
+                margin: 0 !important; 
             }
             .thank-you {
-                margin-top: 20px;
+                margin-top: 20px !important;
             }
         }
     </style>
 </head>
 <body>
 
-    <div class="action-bar">
-        <button onclick="window.print()">Download / Print PDF</button>
+    <div class="action-bar print-hide">
+        <button onclick="window.print()" class="print-hide">Download / Print PDF</button>
     </div>
 
     <div class="invoice-wrapper">

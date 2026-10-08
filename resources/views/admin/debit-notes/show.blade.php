@@ -7,7 +7,7 @@
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2 class="h3 mb-0 text-gray-800">Debit Note: {{ $voucher->voucher_number }}</h2>
-        <div>
+        <div class="print-hide d-flex gap-2">
             @if($voucher->status === 'Posted')
                 <a href="{{ route('debit-notes.pdf', $voucher->id) }}" class="btn btn-secondary shadow-sm">
                     <i class="ph ph-download-simple me-1"></i> Download PDF

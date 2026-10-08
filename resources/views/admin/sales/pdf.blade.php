@@ -274,63 +274,65 @@
     </div>
 
     <?php
-$cgst = $sale->total_amount * 0.09;
-$sgst = $sale->total_amount * 0.09;
-$total_with_tax = $sale->total_amount + $cgst + $sgst;
+$subtotal = ($sale->items && $sale->items->count() > 0) ? (float)$sale->items->sum('total_price') : (float)$sale->total_amount;
+$cgst = round($subtotal * 0.09, 2);
+$sgst = round($subtotal * 0.09, 2);
+$total_with_tax = $subtotal + $cgst + $sgst;
 
-function getIndianCurrency(float $number)
-{
-    $decimal = round($number - ($no = floor($number)), 2) * 100;
-    $hundred = null;
-    $digits_length = strlen($no);
-    $i = 0;
-    $str = array();
-    $words = array(
-        0 => '',
-        1 => 'One',
-        2 => 'Two',
-        3 => 'Three',
-        4 => 'Four',
-        5 => 'Five',
-        6 => 'Six',
-        7 => 'Seven',
-        8 => 'Eight',
-        9 => 'Nine',
-        10 => 'Ten',
-        11 => 'Eleven',
-        12 => 'Twelve',
-        13 => 'Thirteen',
-        14 => 'Fourteen',
-        15 => 'Fifteen',
-        16 => 'Sixteen',
-        17 => 'Seventeen',
-        18 => 'Eighteen',
-        19 => 'Nineteen',
-        20 => 'Twenty',
-        30 => 'Thirty',
-        40 => 'Forty',
-        50 => 'Fifty',
-        60 => 'Sixty',
-        70 => 'Seventy',
-        80 => 'Eighty',
-        90 => 'Ninety'
-    );
-    $digits = array('', 'Hundred', 'Thousand', 'Lakh', 'Crore');
-    while ($i < $digits_length) {
-        $divider = ($i == 2) ? 10 : 100;
-        $number = floor($no % $divider);
-        $no = floor($no / $divider);
-        $i += $divider == 10 ? 1 : 2;
-        if ($number) {
-            $plural = (($counter = count($str)) && $number > 9) ? 's' : null;
-            $hundred = ($counter == 1 && $str[0]) ? ' and ' : null;
-            $str[] = ($number < 21) ? $words[$number] . ' ' . $digits[$counter] . $plural . ' ' . $hundred : $words[floor($number / 10) * 10] . ' ' . $words[$number % 10] . ' ' . $digits[$counter] . $plural . ' ' . $hundred;
-        } else
-            $str[] = null;
+if (!function_exists('getIndianCurrency')) {
+    function getIndianCurrency(float $number)
+    {
+        $decimal = round($number - ($no = floor($number)), 2) * 100;
+        $digits_length = strlen($no);
+        $i = 0;
+        $str = array();
+        $words = array(
+            0 => '',
+            1 => 'One',
+            2 => 'Two',
+            3 => 'Three',
+            4 => 'Four',
+            5 => 'Five',
+            6 => 'Six',
+            7 => 'Seven',
+            8 => 'Eight',
+            9 => 'Nine',
+            10 => 'Ten',
+            11 => 'Eleven',
+            12 => 'Twelve',
+            13 => 'Thirteen',
+            14 => 'Fourteen',
+            15 => 'Fifteen',
+            16 => 'Sixteen',
+            17 => 'Seventeen',
+            18 => 'Eighteen',
+            19 => 'Nineteen',
+            20 => 'Twenty',
+            30 => 'Thirty',
+            40 => 'Forty',
+            50 => 'Fifty',
+            60 => 'Sixty',
+            70 => 'Seventy',
+            80 => 'Eighty',
+            90 => 'Ninety'
+        );
+        $digits = array('', 'Hundred', 'Thousand', 'Lakh', 'Crore');
+        while ($i < $digits_length) {
+            $divider = ($i == 2) ? 10 : 100;
+            $number = floor($no % $divider);
+            $no = floor($no / $divider);
+            $i += $divider == 10 ? 1 : 2;
+            if ($number) {
+                $plural = (($counter = count($str)) && $number > 9) ? 's' : null;
+                $hundred = ($counter == 1 && $str[0]) ? ' and ' : null;
+                $str[] = ($number < 21) ? $words[$number] . ' ' . $digits[$counter] . $plural . ' ' . $hundred : $words[floor($number / 10) * 10] . ' ' . $words[$number % 10] . ' ' . $digits[$counter] . $plural . ' ' . $hundred;
+            } else
+                $str[] = null;
+        }
+        $Rupees = implode('', array_reverse($str));
+        $paise = ($decimal > 0) ? " and " . ($words[$decimal / 10] . " " . $words[$decimal % 10]) . ' Paise' : '';
+        return ($Rupees ? $Rupees . 'Rupees ' : '') . $paise . ' Only';
     }
-    $Rupees = implode('', array_reverse($str));
-    $paise = ($decimal > 0) ? " and " . ($words[$decimal / 10] . " " . $words[$decimal % 10]) . ' Paise' : '';
-    return ($Rupees ? $Rupees . 'Rupees ' : '') . $paise . ' Only';
 }
 ?>
 
@@ -355,8 +357,12 @@ function getIndianCurrency(float $number)
     <table style="margin-bottom: 15px;">
         <tr>
             <td style="width: 60%; vertical-align: top;">
-                <img src="data:image/png;base64,{{ base64_encode(file_get_contents(public_path('elite.png'))) }}"
-                    alt="Demo ERP Logo" style="height: 50px; object-fit: contain; margin-bottom: 10px;">
+                @if(file_exists(public_path('elite.png')))
+                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(public_path('elite.png'))) }}"
+                        alt="Demo ERP Logo" style="height: 50px; object-fit: contain; margin-bottom: 10px;">
+                @else
+                    <div class="brand-name">ELITE TRADING</div>
+                @endif
                 <div style="font-size: 9px; color: #6b7280; line-height: 1.5;">
                     Ground Floor, GF-25, Earth Icon, Nr. Khodiyar Nagar<br>
                     Cross Roads, New VIP Road, Vadodara - 390021<br>
@@ -368,9 +374,18 @@ function getIndianCurrency(float $number)
                 <div style="text-align: right; font-size: 10px; line-height: 1.8;">
                     @if(isset($is_einvoice) && $is_einvoice)
                         <div style="padding-bottom: 10px;">
-                            <img src="data:image/svg+xml;base64,{{ base64_encode(\SimpleSoftwareIO\QrCode\Facades\QrCode::size(50)->generate('Invoice: ' . $sale->invoice_number . ' | Date: ' . $sale->sale_date . ' | Amount: ' . $sale->total_amount)) }}"
-                                alt="QR Code"><br>
-                            <span style="font-size: 7px; font-weight: bold;">e-Invoice</span>
+                            @php
+                                try {
+                                    $qrData = 'Invoice: ' . $sale->invoice_number . ' | Date: ' . $sale->sale_date . ' | Amount: ' . $total_with_tax;
+                                    $qrBase64 = base64_encode(\SimpleSoftwareIO\QrCode\Facades\QrCode::size(50)->generate($qrData));
+                                } catch (\Exception $e) {
+                                    $qrBase64 = null;
+                                }
+                            @endphp
+                            @if($qrBase64)
+                                <img src="data:image/svg+xml;base64,{{ $qrBase64 }}" alt="QR Code"><br>
+                                <span style="font-size: 7px; font-weight: bold;">e-Invoice</span>
+                            @endif
                         </div>
                     @endif
                     <div><span class="meta-label" style="padding-right: 5px;">Invoice No:</span> <span class="meta-value">{{ $sale->invoice_number }}</span></div>
@@ -386,22 +401,22 @@ function getIndianCurrency(float $number)
         <tr>
             <td style="border-right: 1px solid #e5e7eb;">
                 <div class="billing-title">Billed To</div>
-                <div class="bold-name">{{ $sale->customer->company_name ?? $sale->customer->customer_name }}</div>
+                <div class="bold-name">{{ $sale->customer?->company_name ?? $sale->customer?->customer_name ?? 'Cash Customer' }}</div>
                 <div style="font-size: 10px; line-height: 1.6;">
-                    {{ $sale->customer->address }}<br>
-                    {{ $sale->customer->city }}, {{ $sale->customer->state }} {{ $sale->customer->pincode }}<br>
-                    GSTIN: <strong>{{ $sale->customer->gst_no ?? 'URP' }}</strong><br>
-                    {{ $sale->customer->email ?? '' }}
+                    {{ $sale->customer?->address ?? 'Vadodara, Gujarat' }}<br>
+                    {{ $sale->customer?->city ?? '' }}{{ $sale->customer?->state ? ', ' . $sale->customer->state : '' }} {{ $sale->customer?->pincode ?? '' }}<br>
+                    GSTIN: <strong>{{ $sale->customer?->gst_no ?? 'URP' }}</strong><br>
+                    {{ $sale->customer?->email ?? '' }}
                 </div>
             </td>
             <td style="padding-left: 15px;">
                 <div class="billing-title">Shipped To</div>
-                <div class="bold-name">{{ $sale->customer->company_name ?? $sale->customer->customer_name }}</div>
+                <div class="bold-name">{{ $sale->customer?->company_name ?? $sale->customer?->customer_name ?? 'Cash Customer' }}</div>
                 <div style="font-size: 10px; line-height: 1.6;">
-                    {{ $sale->customer->address }}<br>
-                    {{ $sale->customer->city }}, {{ $sale->customer->state }} {{ $sale->customer->pincode }}<br>
-                    GSTIN: <strong>{{ $sale->customer->gst_no ?? 'URP' }}</strong><br>
-                    Contact: {{ $sale->customer->phone ?? 'N/A' }}
+                    {{ $sale->customer?->address ?? 'Vadodara, Gujarat' }}<br>
+                    {{ $sale->customer?->city ?? '' }}{{ $sale->customer?->state ? ', ' . $sale->customer->state : '' }} {{ $sale->customer?->pincode ?? '' }}<br>
+                    GSTIN: <strong>{{ $sale->customer?->gst_no ?? 'URP' }}</strong><br>
+                    Contact: {{ $sale->customer?->mobile ?? $sale->customer?->phone ?? 'N/A' }}
                 </div>
             </td>
         </tr>
@@ -476,25 +491,39 @@ function getIndianCurrency(float $number)
                 </tr>
             </thead>
             <tbody>
-                @foreach($sale->items as $index => $item)
+                @forelse($sale->items as $index => $item)
                     <tr>
                         <td>{{ $index + 1 }}</td>
                         <td>
                             <div class="item-title">
-                                {{ $item->product->item_name ?? $item->product->product_name ?? 'Product' }}
+                                {{ $item->product?->item_name ?? $item->product?->product_name ?? 'Product' }}
                             </div>
                             <div class="item-desc">
-                                HSN: {{ $item->product->hsn_code ?? '85362090' }}
-                                @if(isset($item->product->group))
+                                HSN: {{ $item->product?->hsn_code ?? '85362090' }}
+                                @if(isset($item->product?->group))
                                     | Grp: {{ $item->product->group->name }}
+                                @endif
+                                @if(!empty($item->product?->description) && $item->product->description !== $item->product->item_name)
+                                    | {{ $item->product->description }}
                                 @endif
                             </div>
                         </td>
-                        <td class="text-center">{{ number_format($item->quantity, 0) }} NOS</td>
+                        <td class="text-center">{{ number_format($item->quantity, 0) }} {{ $item->product?->unit ?? 'NOS' }}</td>
                         <td class="text-right">₹{{ number_format($item->unit_price, 2) }}</td>
                         <td class="text-right">₹{{ number_format($item->total_price, 2) }}</td>
                     </tr>
-                @endforeach
+                @empty
+                    <tr>
+                        <td>1</td>
+                        <td>
+                            <div class="item-title">General Trading & Supplies</div>
+                            <div class="item-desc">Invoice No: {{ $sale->invoice_number }}</div>
+                        </td>
+                        <td class="text-center">1 LOT</td>
+                        <td class="text-right">₹{{ number_format($subtotal, 2) }}</td>
+                        <td class="text-right">₹{{ number_format($subtotal, 2) }}</td>
+                    </tr>
+                @endforelse
             </tbody>
         </table>
     </div>
@@ -504,7 +533,7 @@ function getIndianCurrency(float $number)
         <table class="summary-table">
             <tr class="summary-row">
                 <td>Subtotal</td>
-                <td class="val">₹{{ number_format($sale->total_amount, 2) }}</td>
+                <td class="val">₹{{ number_format($subtotal, 2) }}</td>
             </tr>
             <tr class="summary-row">
                 <td>CGST (9%)</td>

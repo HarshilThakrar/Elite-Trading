@@ -4,7 +4,8 @@
 @section('header_title', 'Top Customers')
 
 @section('content')
-<div class="card card-custom mb-4">
+<!-- Filter Card -->
+<div class="card card-custom mb-4 print-hide">
     <div class="card-body bg-white border-bottom p-4">
         <form action="{{ route('reports.topCustomers') }}" method="GET" class="row g-3 align-items-center">
             <div class="col-auto">
@@ -37,9 +38,30 @@
     </div>
 </div>
 
+<!-- Print-Only Header -->
+<div class="print-only mb-3">
+    <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-2">
+        <div>
+            <h3 class="fw-bold mb-0 text-dark">Demo ERP System</h3>
+            <div class="text-muted small">Top {{ $limit }} Customers by Revenue Report ({{ $periodLabel }})</div>
+        </div>
+        <div class="text-end small">
+            <div><strong>Generated on:</strong> {{ now()->format('d M Y, h:i A') }}</div>
+        </div>
+    </div>
+</div>
+
 <div class="card card-custom">
-    <div class="card-header bg-white p-3 border-bottom d-flex justify-content-between align-items-center">
+    <div class="card-header bg-white p-3 border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h5 class="m-0 fw-bold text-primary-custom"><i class="bi bi-trophy me-2"></i> Top {{ $limit }} Customers by Revenue ({{ $periodLabel }})</h5>
+        <div class="d-flex gap-2 align-items-center print-hide">
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.print()">
+                <i class="bi bi-printer me-1"></i> Print
+            </button>
+            <button type="button" class="btn btn-danger btn-sm text-white" onclick="window.print()">
+                <i class="bi bi-file-earmark-pdf me-1"></i> PDF
+            </button>
+        </div>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">

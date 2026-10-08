@@ -5,8 +5,8 @@
     <title>Sales Voucher {{ $sales_voucher->voucher_number }}</title>
     <style>
         body { 
-            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; 
-            font-size: 14px; 
+            font-family: 'DejaVu Sans', sans-serif; 
+            font-size: 13px; 
             color: #333; 
             line-height: 1.5; 
             margin: 0;
@@ -163,7 +163,19 @@
                     </tr>
                     <tr>
                         <td class="label">Customer:</td>
-                        <td class="value">{{ $sales_voucher->reference && $sales_voucher->reference->sale && $sales_voucher->reference->sale->customer ? ($sales_voucher->reference->sale->customer->company_name ?? $sales_voucher->reference->sale->customer->customer_name) : 'N/A' }}</td>
+                        <td class="value">
+                            @php
+                                $custName = 'N/A';
+                                if ($sales_voucher->reference) {
+                                    if ($sales_voucher->reference_type === 'App\Models\Invoice' && $sales_voucher->reference->sale?->customer) {
+                                        $custName = $sales_voucher->reference->sale->customer->company_name ?? $sales_voucher->reference->sale->customer->customer_name;
+                                    } elseif ($sales_voucher->reference_type === 'App\Models\Sale' && $sales_voucher->reference->customer) {
+                                        $custName = $sales_voucher->reference->customer->company_name ?? $sales_voucher->reference->customer->customer_name;
+                                    }
+                                }
+                            @endphp
+                            {{ $custName }}
+                        </td>
                     </tr>
                 </table>
             </div>
@@ -186,7 +198,7 @@
             @endphp
             @foreach($sales_voucher->entries as $entry)
             <tr>
-                <td style="font-weight: 600;">{{ $entry->ledger->name }}</td>
+                <td style="font-weight: 600;">{{ $entry->ledger?->name ?? 'Ledger' }}</td>
                 <td style="color: #64748b;">{{ $entry->narration }}</td>
                 <td class="text-right" style="color: #16a34a; font-weight: 600;">
                     @if($entry->type == 'Dr')

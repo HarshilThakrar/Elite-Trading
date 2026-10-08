@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Ledger;
 use App\Models\AccountGroup;
 use App\Models\JournalEntry;
+use App\Models\OpeningBalance;
 use Illuminate\Support\Facades\DB;
 
 class TrialBalanceService
@@ -16,7 +17,7 @@ class TrialBalanceService
         if (!empty($filters['account_group_id'])) {
             $groupIds = $this->getAllChildGroupIds($filters['account_group_id']);
             $groupIds[] = $filters['account_group_id'];
-            $ledgersQuery->whereIn('account_group_id', $groupIds);
+            $ledgersQuery->whereIn('account_group_id', array_unique($groupIds));
         }
 
         if (!empty($filters['ledger_id'])) {
@@ -97,15 +98,17 @@ class TrialBalanceService
 
     private function calculateOpeningBalances($ledgerIds, $financialYear, $fromDate)
     {
-        // Chunk ledger IDs if too large, but for standard ERP it's fine.
+        if (empty($ledgerIds) || !$financialYear) {
+            return [];
+        }
+
         $ledgers = Ledger::whereIn('id', $ledgerIds)->with(['openingBalances' => function($q) use ($financialYear) {
             $q->where('financial_year_id', $financialYear->id);
         }])->get();
 
         $fyStart = $financialYear->start_date->format('Y-m-d');
         
-        // Sum posted movements from FY start up to fromDate
-        // Exclusive of fromDate!
+        // Sum posted movements from FY start up to fromDate (exclusive of fromDate)
         $movements = collect();
         if ($fromDate > $fyStart) {
             $movements = JournalEntry::select('ledger_id', 
@@ -123,6 +126,12 @@ class TrialBalanceService
             ->keyBy('ledger_id');
         }
 
+        // Single optimized query to check which ledgers have ANY opening balances across all years
+        $ledgersWithAnyOb = OpeningBalance::whereIn('ledger_id', $ledgerIds)
+            ->pluck('ledger_id')
+            ->flip()
+            ->toArray();
+
         $result = [];
         foreach ($ledgers as $ledger) {
             $obAmount = (float) $ledger->opening_balance;
@@ -133,9 +142,7 @@ class TrialBalanceService
                 $obAmount = (float) $fyOpening->amount;
                 $obType = $fyOpening->type;
             } else {
-                // If there's FY-specific opening balance structure but none found for this year, check if ANY exist
-                // as per logic from Cash Book
-                if ($ledger->openingBalances()->exists()) {
+                if (isset($ledgersWithAnyOb[$ledger->id])) {
                     $obAmount = 0;
                     $obType = 'Dr';
                 }
@@ -145,7 +152,7 @@ class TrialBalanceService
             
             $mov = $movements->get($ledger->id);
             if ($mov) {
-                $netOpening += ($mov->period_dr - $mov->period_cr);
+                $netOpening += ((float)$mov->period_dr - (float)$mov->period_cr);
             }
 
             $result[$ledger->id] = [
@@ -160,6 +167,10 @@ class TrialBalanceService
 
     private function calculatePeriodMovements($ledgerIds, $financialYear, $fromDate, $toDate)
     {
+        if (empty($ledgerIds) || !$financialYear) {
+            return [];
+        }
+
         return JournalEntry::select('ledger_id', 
                 DB::raw("SUM(CASE WHEN journal_entries.type = 'Dr' THEN journal_entries.amount ELSE 0 END) as period_dr"),
                 DB::raw("SUM(CASE WHEN journal_entries.type = 'Cr' THEN journal_entries.amount ELSE 0 END) as period_cr")
@@ -204,16 +215,16 @@ class TrialBalanceService
             }
         }
 
-        // Build tree
+        // Build tree with circular reference check
         foreach ($allGroups as $group) {
-            if ($group->parent_id && isset($groupTotals[$group->parent_id])) {
+            if ($group->parent_id && isset($groupTotals[$group->parent_id]) && $group->parent_id != $group->id) {
                 $groupTotals[$group->parent_id]['children'][$group->id] = &$groupTotals[$group->id];
             } else {
                 $tree[$group->id] = &$groupTotals[$group->id];
             }
         }
         
-        // Remove empty groups recursively
+        // Remove empty groups recursively with visited guard
         $this->pruneEmptyGroups($tree);
 
         return ['tree' => $tree, 'allGroups' => $allGroups];
@@ -222,7 +233,9 @@ class TrialBalanceService
     private function bubbleUpTotals(&$groupTotals, $allGroups, $groupId, $row)
     {
         $currentGroupId = $groupId;
-        while ($currentGroupId) {
+        $visited = [];
+        while ($currentGroupId && !isset($visited[$currentGroupId])) {
+            $visited[$currentGroupId] = true;
             if (isset($groupTotals[$currentGroupId])) {
                 $groupTotals[$currentGroupId]['opening_dr'] += $row['opening_dr'];
                 $groupTotals[$currentGroupId]['opening_cr'] += $row['opening_cr'];
@@ -233,15 +246,20 @@ class TrialBalanceService
             }
             
             $group = $allGroups->get($currentGroupId);
-            $currentGroupId = $group ? $group->parent_id : null;
+            $currentGroupId = ($group && $group->parent_id != $currentGroupId) ? $group->parent_id : null;
         }
     }
 
-    private function pruneEmptyGroups(&$tree)
+    private function pruneEmptyGroups(&$tree, &$visited = [])
     {
         foreach ($tree as $id => &$node) {
+            if (isset($visited[$id])) {
+                unset($tree[$id]);
+                continue;
+            }
+            $visited[$id] = true;
             if (!empty($node['children'])) {
-                $this->pruneEmptyGroups($node['children']);
+                $this->pruneEmptyGroups($node['children'], $visited);
             }
             
             if (empty($node['ledgers']) && empty($node['children'])) {
@@ -250,13 +268,20 @@ class TrialBalanceService
         }
     }
 
-    private function getAllChildGroupIds($parentId)
+    private function getAllChildGroupIds($parentId, &$visited = [])
     {
+        if (in_array($parentId, $visited)) {
+            return [];
+        }
+        $visited[] = $parentId;
+
         $children = AccountGroup::where('parent_id', $parentId)->pluck('id')->toArray();
         $allIds = $children;
         foreach ($children as $childId) {
-            $allIds = array_merge($allIds, $this->getAllChildGroupIds($childId));
+            if (!in_array($childId, $visited)) {
+                $allIds = array_merge($allIds, $this->getAllChildGroupIds($childId, $visited));
+            }
         }
-        return $allIds;
+        return array_unique($allIds);
     }
 }

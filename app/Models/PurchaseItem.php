@@ -10,7 +10,7 @@ class PurchaseItem extends Model
     /** @use HasFactory<\Database\Factories\PurchaseItemFactory> */
     use HasFactory;
 
-    protected $fillable = ['purchase_id', 'product_id', 'quantity', 'unit_price', 'total_price'];
+    protected $fillable = ['purchase_id', 'product_id', 'quantity', 'unit_price', 'total_price', 'invoiced_qty'];
 
     public function purchase()
     {

@@ -83,3 +83,28 @@ class AppServiceProvider extends ServiceProvider
         });
     }
 }
+
+if (!function_exists('activity')) {
+    function activity()
+    {
+        return new class {
+            public function log($description)
+            {
+                try {
+                    \Illuminate\Support\Facades\Log::info("Activity Log: " . $description);
+                    if (\Illuminate\Support\Facades\Schema::hasTable('audit_logs')) {
+                        \App\Models\AuditLog::create([
+                            'user_id' => auth()->id() ?? 1,
+                            'action' => 'activity',
+                            'model_type' => 'System',
+                            'model_id' => 0,
+                            'new_values' => ['message' => $description],
+                        ]);
+                    }
+                } catch (\Throwable $e) {
+                    // Ignore activity logging errors
+                }
+            }
+        };
+    }
+}

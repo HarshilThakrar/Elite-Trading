@@ -121,41 +121,84 @@ class CashBookController extends Controller
 
     private function getReportData(Request $request)
     {
+        $financialYears = FinancialYear::orderBy('start_date', 'desc')->get();
+        $cashLedgers = $this->cashBookService->getCashLedgers();
+
         $fyId = $request->input('financial_year_id');
         $ledgerId = $request->input('ledger_id');
         
         $financialYear = $fyId ? FinancialYear::find($fyId) : $this->financialYearService->getCurrentFinancialYear();
         if (!$financialYear) {
-            $financialYear = FinancialYear::orderBy('start_date', 'desc')->first();
+            $financialYear = $financialYears->first();
         }
 
-        $fromDate = $request->input('from_date', date('Y-m-d'));
-        $toDate = $request->input('to_date', date('Y-m-d'));
+        if ($financialYear) {
+            $fyId = $financialYear->id;
+            $defaultFrom = $financialYear->start_date->format('Y-m-d');
+            $defaultTo = min($financialYear->end_date, Carbon::now())->format('Y-m-d');
+        } else {
+            $defaultFrom = date('Y-m-d');
+            $defaultTo = date('Y-m-d');
+        }
+
+        $fromDate = $request->input('from_date', $defaultFrom);
+        $toDate = $request->input('to_date', $defaultTo);
         
-        $ledger = \App\Models\Ledger::findOrFail($ledgerId);
+        // Ensure dates are within FY
+        if ($financialYear) {
+            if ($fromDate < $financialYear->start_date->format('Y-m-d')) {
+                $fromDate = $financialYear->start_date->format('Y-m-d');
+            }
+            if ($toDate > $financialYear->end_date->format('Y-m-d')) {
+                $toDate = $financialYear->end_date->format('Y-m-d');
+            }
+        }
+
+        if (!$ledgerId && $cashLedgers->isNotEmpty()) {
+            $ledgerId = $cashLedgers->first()->id;
+        }
+
+        $ledger = null;
+        if ($ledgerId) {
+            $ledger = \App\Models\Ledger::find($ledgerId);
+        }
+        if (!$ledger && $cashLedgers->isNotEmpty()) {
+            $ledger = $cashLedgers->first();
+            $ledgerId = $ledger->id;
+        }
 
         $filters = [
             'voucher_type' => $request->input('voucher_type'),
             'search' => $request->input('search')
         ];
 
-        $openingBalance = $this->cashBookService->getOpeningBalance($ledgerId, $financialYear, $fromDate);
-        $query = $this->cashBookService->getTransactionsQuery($ledgerId, $financialYear->id, $fromDate, $toDate, $filters);
-        $transactions = $query->get();
+        $transactions = collect();
+        $openingBalance = ['amount' => 0, 'type' => 'Dr', 'signed_amount' => 0];
+        $summary = ['receipts' => 0, 'payments' => 0];
 
-        $currentBalance = $openingBalance['signed_amount'];
-        foreach ($transactions as $transaction) {
-            if ($transaction->type === 'Dr') {
-                $currentBalance += (float) $transaction->amount;
-            } else {
-                $currentBalance -= (float) $transaction->amount;
+        if ($ledger && $financialYear) {
+            $openingBalance = $this->cashBookService->getOpeningBalance($ledger->id, $financialYear, $fromDate);
+            $query = $this->cashBookService->getTransactionsQuery($ledger->id, $financialYear->id, $fromDate, $toDate, $filters);
+            $transactions = $query->get();
+
+            $currentBalance = $openingBalance['signed_amount'];
+            foreach ($transactions as $transaction) {
+                if ($transaction->type === 'Dr') {
+                    $currentBalance += (float) $transaction->amount;
+                } else {
+                    $currentBalance -= (float) $transaction->amount;
+                }
+                $transaction->running_balance = abs($currentBalance);
+                $transaction->running_balance_type = $currentBalance >= 0 ? 'Dr' : 'Cr';
+                $transaction->particulars = $this->cashBookService->getParticulars($transaction);
             }
-            $transaction->running_balance = abs($currentBalance);
-            $transaction->running_balance_type = $currentBalance >= 0 ? 'Dr' : 'Cr';
-            $transaction->particulars = $this->cashBookService->getParticulars($transaction);
+
+            $summary = $this->cashBookService->getSummary($ledger->id, $financialYear->id, $fromDate, $toDate, $filters);
         }
 
-        $summary = $this->cashBookService->getSummary($ledgerId, $financialYear->id, $fromDate, $toDate, $filters);
+        if (!$ledger) {
+            $ledger = (object) ['name' => 'Cash Account', 'id' => null];
+        }
 
         $closingBalanceSigned = $openingBalance['signed_amount'] + $summary['receipts'] - $summary['payments'];
         $closingBalance = [
@@ -169,11 +212,12 @@ class CashBookController extends Controller
     public function export(Request $request)
     {
         $data = $this->getReportData($request);
-        $filename = "cash_book_{$data['ledger']->name}_" . date('Ymd_His') . ".csv";
+        $ledgerSlug = \Illuminate\Support\Str::slug($data['ledger']->name ?? 'cash_book', '_');
+        $filename = "cash_book_{$ledgerSlug}_" . date('Ymd_His') . ".csv";
 
         $headers = [
-            "Content-type"        => "text/csv",
-            "Content-Disposition" => "attachment; filename=$filename",
+            "Content-type"        => "text/csv; charset=UTF-8",
+            "Content-Disposition" => "attachment; filename=\"$filename\"",
             "Pragma"              => "no-cache",
             "Cache-Control"       => "must-revalidate, post-check=0, pre-check=0",
             "Expires"             => "0"
@@ -183,6 +227,9 @@ class CashBookController extends Controller
 
         $callback = function() use($data, $columns) {
             $file = fopen('php://output', 'w');
+            // Write UTF-8 BOM for Excel compatibility
+            fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF));
+
             fputcsv($file, $columns);
             
             // Opening balance
@@ -192,25 +239,52 @@ class CashBookController extends Controller
                 'Opening',
                 'Opening Balance',
                 '-',
-                $data['openingBalance']['type'] == 'Dr' ? $data['openingBalance']['amount'] : '',
-                $data['openingBalance']['type'] == 'Cr' ? $data['openingBalance']['amount'] : '',
-                $data['openingBalance']['amount'],
+                $data['openingBalance']['type'] == 'Dr' ? number_format($data['openingBalance']['amount'], 2, '.', '') : '',
+                $data['openingBalance']['type'] == 'Cr' ? number_format($data['openingBalance']['amount'], 2, '.', '') : '',
+                number_format($data['openingBalance']['amount'], 2, '.', ''),
                 $data['openingBalance']['type']
             ]);
 
             foreach ($data['transactions'] as $t) {
                 fputcsv($file, [
-                    $t->voucher->date->format('d-m-Y'),
-                    $t->voucher->voucher_number,
-                    $t->voucher->type,
-                    $t->particulars,
-                    $t->voucher->reference_id ?? '-',
-                    $t->type == 'Dr' ? $t->amount : '',
-                    $t->type == 'Cr' ? $t->amount : '',
-                    $t->running_balance,
+                    $t->voucher && $t->voucher->date ? $t->voucher->date->format('d-m-Y') : '-',
+                    $t->voucher ? $t->voucher->voucher_number : '-',
+                    $t->voucher ? $t->voucher->type : '-',
+                    $t->particulars ?: '-',
+                    $t->voucher ? ($t->voucher->reference_id ?? '-') : '-',
+                    $t->type == 'Dr' ? number_format($t->amount, 2, '.', '') : '',
+                    $t->type == 'Cr' ? number_format($t->amount, 2, '.', '') : '',
+                    number_format($t->running_balance, 2, '.', ''),
                     $t->running_balance_type
                 ]);
             }
+
+            // Totals
+            fputcsv($file, [
+                'Total',
+                '',
+                '',
+                'Total Receipts & Payments',
+                '',
+                number_format($data['summary']['receipts'], 2, '.', ''),
+                number_format($data['summary']['payments'], 2, '.', ''),
+                '',
+                ''
+            ]);
+
+            // Closing Balance
+            fputcsv($file, [
+                \Carbon\Carbon::parse($data['toDate'])->format('d-m-Y'),
+                'CB',
+                'Closing',
+                'Closing Balance',
+                '',
+                '',
+                '',
+                number_format($data['closingBalance']['amount'], 2, '.', ''),
+                $data['closingBalance']['type']
+            ]);
+
             fclose($file);
         };
 
@@ -224,7 +298,8 @@ class CashBookController extends Controller
         // Use existing DOMPDF if installed, else fallback to standard view. Assuming laravel-dompdf is installed.
         if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class)) {
             $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('admin.cash-book.pdf', $data);
-            return $pdf->download("cash_book_{$data['ledger']->name}.pdf");
+            $ledgerSlug = \Illuminate\Support\Str::slug($data['ledger']->name ?? 'cash_book', '_');
+            return $pdf->download("cash_book_{$ledgerSlug}.pdf");
         }
         
         return view('admin.cash-book.pdf', $data);

@@ -43,7 +43,10 @@
                             @endif
                         </td>
                         <td>
-                            <a href="{{ route('purchases.show', $purchase->id) }}" class="btn btn-sm btn-info text-white"><i class="bi bi-eye"></i> View</a>
+                            <div class="d-flex gap-1">
+                                <a href="{{ route('purchases.show', $purchase->id) }}" class="btn btn-sm btn-info text-white" title="View PO"><i class="bi bi-eye"></i> View</a>
+                                <a href="{{ route('purchases.pdf', $purchase->id) }}" class="btn btn-sm btn-secondary" title="Download PDF"><i class="bi bi-file-earmark-pdf"></i> PDF</a>
+                            </div>
                         </td>
                     </tr>
                     @endforeach

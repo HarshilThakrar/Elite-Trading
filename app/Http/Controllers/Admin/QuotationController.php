@@ -28,7 +28,27 @@ class QuotationController extends Controller
     public function index()
     {
         $quotations = Quotation::with(['customer', 'creator'])->orderBy('created_at', 'desc')->paginate(20);
-        return view('admin.quotations.index', compact('quotations'));
+
+        // Map converted quotations to sales to avoid N+1 queries
+        $convertedQuotationNumbers = $quotations->where('status', 'Converted')->pluck('quotation_number')->toArray();
+        $convertedSalesMap = [];
+        if (!empty($convertedQuotationNumbers)) {
+            $sales = \App\Models\Sale::where(function($query) use ($convertedQuotationNumbers) {
+                foreach ($convertedQuotationNumbers as $qNum) {
+                    $query->orWhere('notes', 'like', '%' . $qNum . '%');
+                }
+            })->get(['id', 'invoice_number', 'notes']);
+
+            foreach ($sales as $s) {
+                foreach ($convertedQuotationNumbers as $qNum) {
+                    if (str_contains($s->notes ?? '', $qNum)) {
+                        $convertedSalesMap[$qNum] = $s;
+                    }
+                }
+            }
+        }
+
+        return view('admin.quotations.index', compact('quotations', 'convertedSalesMap'));
     }
 
     public function create()
@@ -207,8 +227,8 @@ class QuotationController extends Controller
     public function generatePdf(Quotation $quotation)
     {
         $quotation->load(['customer', 'items.product']);
-        $pdf = Pdf::loadView('quotations.pdf', compact('quotation'));
-        return $pdf->download('Quotation_' . $quotation->quotation_number . '.pdf');
+        $safeQuot = str_replace(['/', '\\', ' '], ['-', '-', '_'], $quotation->quotation_number ?? (string)$quotation->id);
+        return $pdf->download('Quotation_' . $safeQuot . '.pdf');
     }
 
     public function export($id, $type)
@@ -230,7 +250,7 @@ class QuotationController extends Controller
 
     public function changeStatus(Request $request, Quotation $quotation)
     {
-        $request->validate(['status' => 'required|in:Draft,Approved,Sent,Accepted,Rejected,Pending Approval']);
+        $request->validate(['status' => 'required|in:Draft,Approved,Sent,Accepted,Rejected,Pending Approval,Converted']);
         $quotation->update(['status' => $request->status]);
         return back()->with('success', 'Status updated successfully');
     }
@@ -270,48 +290,80 @@ class QuotationController extends Controller
     public function convertToSale(Request $request, Quotation $quotation)
     {
         try {
-            if ($quotation->valid_until && \Carbon\Carbon::parse($quotation->valid_until)->isPast()) {
-                throw new \Exception("Cannot convert an expired quotation to a Sales Order.");
+            $quotation->loadMissing(['customer', 'items.product']);
+
+            if (!$quotation->customer_id) {
+                return back()->with('error', 'Cannot convert quotation: No customer linked to this quotation.');
             }
 
-            DB::beginTransaction();
-            
-            // Accept the quotation
-            $quotation->update([
-                'status' => 'Approved',
-                'customer_status' => 'Accepted'
-            ]);
+            if ($quotation->items->isEmpty()) {
+                return back()->with('error', 'Cannot convert quotation: No items found in this quotation.');
+            }
 
-            // Create Sales Order via Service
-            $saleService = app(\App\Services\SaleService::class);
-            $invoice_number = $saleService->generateInvoiceNumber();
-            
-            $saleData = [
-                'invoice_number' => $invoice_number,
-                'customer_id'    => $quotation->customer_id,
-                'sale_date'      => now()->format('Y-m-d'),
-                'total_amount'   => $quotation->grand_total,
-                'notes'          => "Converted from Quotation: " . $quotation->quotation_number,
-                'items'          => []
-            ];
-            
+            // Check if already converted
+            if ($quotation->status === 'Converted') {
+                $existingSale = \App\Models\Sale::where('notes', 'like', '%' . $quotation->quotation_number . '%')->latest('id')->first();
+                if ($existingSale) {
+                    return redirect()->route('sales.show', $existingSale->id)
+                        ->with('info', "Quotation {$quotation->quotation_number} has already been converted to Sales Order ({$existingSale->invoice_number}).");
+                }
+            }
+
+            // Note if converted past validity date (allow admin to still convert without throwing fatal exception)
+            $expiryNote = '';
+            if ($quotation->valid_until && \Carbon\Carbon::parse($quotation->valid_until)->endOfDay()->isPast()) {
+                $expiryNote = " (Converted past validity: " . \Carbon\Carbon::parse($quotation->valid_until)->format('d M, Y') . ")";
+            }
+
+            // Prepare items and calculate total
+            $itemsData = [];
+            $calculatedTotal = 0;
             foreach ($quotation->items as $item) {
-                $saleData['items'][] = [
+                if (!$item->product_id) continue;
+                $qty = floatval($item->quantity ?: 1);
+                $rate = floatval($item->customer_rate ?: ($item->unit_price ?: ($item->list_price ?: 0)));
+                $calculatedTotal += ($qty * $rate);
+                $itemsData[] = [
                     'product_id' => $item->product_id,
-                    'quantity'   => $item->quantity,
-                    'unit_price' => $item->customer_rate ?? $item->unit_price,
+                    'quantity'   => $qty,
+                    'unit_price' => $rate,
                 ];
             }
 
-            $sale = $saleService->createSale($saleData);
-            
-            DB::commit();
+            if (empty($itemsData)) {
+                return back()->with('error', 'Cannot convert quotation: No valid products found in quotation items.');
+            }
+
+            $totalAmount = floatval($quotation->grand_total_with_gst ?: ($quotation->grand_total ?: ($quotation->total_amount ?: $calculatedTotal)));
+
+            $sale = DB::transaction(function () use ($quotation, $itemsData, $totalAmount, $expiryNote) {
+                // Update Quotation Status
+                $quotation->update([
+                    'status' => 'Converted',
+                    'customer_status' => 'Accepted'
+                ]);
+
+                // Create Sales Order via Service
+                $saleService = app(\App\Services\SaleService::class);
+                $invoice_number = $saleService->generateInvoiceNumber();
+
+                $saleData = [
+                    'invoice_number' => $invoice_number,
+                    'customer_id'    => $quotation->customer_id,
+                    'sale_date'      => now()->format('Y-m-d'),
+                    'total_amount'   => $totalAmount,
+                    'notes'          => "Converted from Quotation: " . $quotation->quotation_number . $expiryNote,
+                    'items'          => $itemsData
+                ];
+
+                return $saleService->createSale($saleData);
+            });
 
             return redirect()->route('sales.show', $sale->id)
-                ->with('success', 'Quotation successfully converted to Sales Order.');
-                
+                ->with('success', "Quotation {$quotation->quotation_number} successfully converted to Sales Order ({$sale->invoice_number}).");
+
         } catch (\Exception $e) {
-            DB::rollBack();
+            \Illuminate\Support\Facades\Log::error('Quotation convert to sale error: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             return back()->with('error', 'Error converting to Sales Order: ' . $e->getMessage());
         }
     }

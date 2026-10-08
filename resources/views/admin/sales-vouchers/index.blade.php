@@ -83,7 +83,7 @@
                                     <i class="ph ph-eye"></i>
                                 </a>
                                 @if($voucher->status === 'Posted')
-                                    <a href="{{ route('sales-vouchers.pdf', $voucher->id) }}" class="btn btn-sm btn-secondary" title="Download PDF">
+                                    <a href="{{ route('sales-vouchers.pdf', $voucher->id) }}" class="btn btn-sm btn-secondary" title="Download PDF" target="_blank" download>
                                         <i class="ph ph-download-simple"></i>
                                     </a>
                                 @endif

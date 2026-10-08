@@ -6,12 +6,14 @@ use App\Models\Ledger;
 use App\Models\JournalEntry;
 use App\Models\Customer;
 use App\Models\Vendor;
+use App\Models\AccountGroup;
+use App\Models\OpeningBalance;
 use Carbon\Carbon;
 
 class OutstandingService
 {
     /**
-     * Get Outstanding Data for Receivables or Payables.
+     * Get Outstanding Data for Receivables or Payables (Batch-loaded & Optimized).
      *
      * @param string $type 'receivables' or 'payables'
      * @param \App\Models\FinancialYear $financialYear
@@ -21,10 +23,106 @@ class OutstandingService
      */
     public function getOutstandingData($type, $financialYear, $asOfDate, $filters = [])
     {
-        $ledgers = $this->getRelevantLedgers($type);
+        $ledgers = $this->getRelevantLedgers($type, $filters);
         
+        $emptyReport = [
+            'type' => $type,
+            'financialYear' => $financialYear,
+            'asOfDate' => $asOfDate,
+            'data' => [],
+            'summary' => [
+                'total_outstanding' => 0,
+                'total_overdue' => 0,
+                'party_count' => 0,
+                'aging' => [
+                    'not_due' => 0,
+                    '0_30' => 0,
+                    '31_60' => 0,
+                    '61_90' => 0,
+                    '91_180' => 0,
+                    '181_365' => 0,
+                    'above_365' => 0,
+                ]
+            ]
+        ];
+
+        if ($ledgers->isEmpty() || !$financialYear) {
+            return $emptyReport;
+        }
+
+        $ledgerIds = $ledgers->pluck('id')->toArray();
+        $asOfDateObj = Carbon::parse($asOfDate)->endOfDay();
+        $fyStartDate = Carbon::parse($financialYear->start_date)->startOfDay();
+
+        // 1. Batch load Opening Balances for the selected FY (1 query)
+        $openingBalances = OpeningBalance::where('financial_year_id', $financialYear->id)
+            ->whereIn('ledger_id', $ledgerIds)
+            ->get()
+            ->keyBy('ledger_id');
+
+        // Check which ledgers have ANY FY opening balance record (to decide fallback)
+        $ledgersWithAnyOb = OpeningBalance::whereIn('ledger_id', $ledgerIds)
+            ->pluck('ledger_id')
+            ->flip();
+
+        // 2. Batch load payment terms (1 query)
+        $paymentTermsMap = [];
+        if ($type === 'receivables') {
+            $customerIds = $ledgers->where('type', 'customer')->pluck('reference_id')->filter()->unique();
+            $customers = Customer::whereIn('id', $customerIds)
+                ->orWhereIn('company_name', $ledgers->pluck('name'))
+                ->get();
+            
+            $termsById = $customers->keyBy('id');
+            $termsByName = $customers->keyBy(fn($c) => strtolower(trim($c->company_name)));
+
+            foreach ($ledgers as $l) {
+                $terms = 0;
+                if ($l->type === 'customer' && $l->reference_id && isset($termsById[$l->reference_id])) {
+                    $terms = (int)($termsById[$l->reference_id]->payment_terms ?? 0);
+                } elseif (isset($termsByName[strtolower(trim($l->name))])) {
+                    $terms = (int)($termsByName[strtolower(trim($l->name))]->payment_terms ?? 0);
+                }
+                $paymentTermsMap[$l->id] = max(0, $terms);
+            }
+        } else {
+            $vendorIds = $ledgers->where('type', 'vendor')->pluck('reference_id')->filter()->unique();
+            $vendors = Vendor::whereIn('id', $vendorIds)
+                ->orWhereIn('company_name', $ledgers->pluck('name'))
+                ->get();
+            
+            $termsById = $vendors->keyBy('id');
+            $termsByName = $vendors->keyBy(fn($v) => strtolower(trim($v->company_name)));
+
+            foreach ($ledgers as $l) {
+                $terms = 0;
+                if ($l->type === 'vendor' && $l->reference_id && isset($termsById[$l->reference_id])) {
+                    $terms = (int)($termsById[$l->reference_id]->lead_time_days ?? 0);
+                } elseif (isset($termsByName[strtolower(trim($l->name))])) {
+                    $terms = (int)($termsByName[strtolower(trim($l->name))]->lead_time_days ?? 0);
+                }
+                $paymentTermsMap[$l->id] = max(0, $terms);
+            }
+        }
+
+        // 3. Batch load all posted journal entries with vouchers for all target ledgers (2 queries)
+        $entriesGrouped = JournalEntry::with(['voucher' => function($q) {
+                $q->select('id', 'voucher_number', 'type', 'date', 'status', 'financial_year_id');
+            }])
+            ->whereIn('ledger_id', $ledgerIds)
+            ->whereHas('voucher', function($q) use ($financialYear, $asOfDate) {
+                $q->where('status', 'Posted')
+                  ->where('financial_year_id', $financialYear->id)
+                  ->where('date', '<=', $asOfDate);
+            })
+            ->get()
+            ->groupBy('ledger_id');
+
+        // 4. In-memory FIFO processing across all ledgers
         $data = [];
         $totalOutstanding = 0;
+        $overdueAmount = 0;
+        $partyCount = 0;
         $agingTotals = [
             'not_due' => 0,
             '0_30' => 0,
@@ -34,34 +132,167 @@ class OutstandingService
             '181_365' => 0,
             'above_365' => 0,
         ];
-        
-        $overdueAmount = 0;
-        $partyCount = 0;
 
-        $targetLedgerId = $filters['ledger_id'] ?? null;
-        $search = $filters['search'] ?? null;
+        $invoiceType = $type === 'receivables' ? 'Dr' : 'Cr';
+        $paymentType = $type === 'receivables' ? 'Cr' : 'Dr';
 
         foreach ($ledgers as $ledger) {
-            // Apply ledger specific filters
-            if ($targetLedgerId && $ledger->id != $targetLedgerId) {
-                continue;
+            // Determine opening balance
+            $openingBalanceAmount = 0;
+            $openingBalanceType = 'Dr';
+            if (isset($openingBalances[$ledger->id])) {
+                $ob = $openingBalances[$ledger->id];
+                $openingBalanceAmount = (float)$ob->amount;
+                $openingBalanceType = $ob->type;
+            } elseif (!isset($ledgersWithAnyOb[$ledger->id])) {
+                $openingBalanceAmount = (float)$ledger->opening_balance;
+                $openingBalanceType = $ledger->opening_balance_type;
             }
-            if ($search && stripos($ledger->name, $search) === false) {
+
+            $invoices = [];
+            $totalPayments = 0;
+
+            if ($openingBalanceAmount > 0) {
+                if ($openingBalanceType === $invoiceType) {
+                    $invoices[] = [
+                        'is_opening' => true,
+                        'voucher_number' => 'Opening Balance',
+                        'date' => $fyStartDate,
+                        'due_date' => $fyStartDate,
+                        'amount' => $openingBalanceAmount,
+                        'paid' => 0,
+                        'outstanding' => $openingBalanceAmount
+                    ];
+                } else {
+                    $totalPayments += $openingBalanceAmount;
+                }
+            }
+
+            $paymentTermsDays = $paymentTermsMap[$ledger->id] ?? 0;
+            $ledgerEntries = $entriesGrouped->get($ledger->id, collect());
+
+            // Sort entries chronologically
+            $sortedEntries = $ledgerEntries->sortBy(function($entry) {
+                $ts = $entry->voucher && $entry->voucher->date ? $entry->voucher->date->timestamp : 0;
+                return $ts . '-' . $entry->id;
+            });
+
+            foreach ($sortedEntries as $entry) {
+                if (!$entry->voucher) {
+                    continue;
+                }
+                if ($entry->type === $invoiceType) {
+                    $vDate = Carbon::parse($entry->voucher->date);
+                    $dueDate = $vDate->copy()->addDays($paymentTermsDays);
+                    $invoices[] = [
+                        'is_opening' => false,
+                        'voucher_id' => $entry->voucher->id,
+                        'voucher_number' => $entry->voucher->voucher_number,
+                        'type' => $entry->voucher->type,
+                        'date' => $vDate,
+                        'due_date' => $dueDate,
+                        'amount' => (float)$entry->amount,
+                        'paid' => 0,
+                        'outstanding' => (float)$entry->amount
+                    ];
+                } else {
+                    $totalPayments += (float)$entry->amount;
+                }
+            }
+
+            // Skip ledgers with no activity and zero opening
+            if (empty($invoices) && $totalPayments <= 0.01) {
                 continue;
             }
 
-            $partyOutstanding = $this->calculateFifoOutstanding($ledger, $type, $financialYear, $asOfDate);
-            
-            if ($partyOutstanding['total_outstanding'] > 0) {
-                $partyCount++;
-                $totalOutstanding += $partyOutstanding['total_outstanding'];
-                $overdueAmount += $partyOutstanding['total_overdue'];
-                
-                foreach ($partyOutstanding['aging_summary'] as $key => $amount) {
-                    $agingTotals[$key] += $amount;
+            // Apply FIFO Allocation
+            $remainingPayments = $totalPayments;
+            $outstandingInvoices = [];
+            $partyTotalOutstanding = 0;
+            $partyTotalOverdue = 0;
+            $partyAging = [
+                'not_due' => 0,
+                '0_30' => 0,
+                '31_60' => 0,
+                '61_90' => 0,
+                '91_180' => 0,
+                '181_365' => 0,
+                'above_365' => 0,
+            ];
+
+            foreach ($invoices as &$inv) {
+                if ($remainingPayments >= $inv['amount']) {
+                    $inv['paid'] = $inv['amount'];
+                    $inv['outstanding'] = 0;
+                    $remainingPayments -= $inv['amount'];
+                } elseif ($remainingPayments > 0) {
+                    $inv['paid'] = $remainingPayments;
+                    $inv['outstanding'] -= $remainingPayments;
+                    $remainingPayments = 0;
                 }
-                
-                $data[] = $partyOutstanding;
+
+                if ($inv['outstanding'] > 0.01) {
+                    $asOfDateStart = Carbon::parse($asOfDate)->startOfDay();
+                    $dueDateStart = Carbon::parse($inv['due_date'])->startOfDay();
+
+                    $bucket = 'not_due';
+                    $overdueDays = 0;
+
+                    if ($asOfDateStart->greaterThan($dueDateStart)) {
+                        $overdueDays = (int)$dueDateStart->diffInDays($asOfDateStart);
+                        $partyTotalOverdue += $inv['outstanding'];
+                        
+                        if ($overdueDays <= 30) $bucket = '0_30';
+                        elseif ($overdueDays <= 60) $bucket = '31_60';
+                        elseif ($overdueDays <= 90) $bucket = '61_90';
+                        elseif ($overdueDays <= 180) $bucket = '91_180';
+                        elseif ($overdueDays <= 365) $bucket = '181_365';
+                        else $bucket = 'above_365';
+                    }
+
+                    $inv['days'] = $overdueDays;
+                    $inv['bucket'] = $bucket;
+
+                    $partyAging[$bucket] += $inv['outstanding'];
+                    $partyTotalOutstanding += $inv['outstanding'];
+                    $outstandingInvoices[] = $inv;
+                }
+            }
+
+            // Handle unallocated advances (when payments > invoices)
+            if ($remainingPayments > 0.01) {
+                $outstandingInvoices[] = [
+                    'is_opening' => false,
+                    'voucher_number' => 'Unallocated Advance / Excess',
+                    'date' => $asOfDateObj,
+                    'due_date' => $asOfDateObj,
+                    'amount' => 0,
+                    'paid' => $remainingPayments,
+                    'outstanding' => -$remainingPayments,
+                    'days' => 0,
+                    'bucket' => 'not_due'
+                ];
+                $partyTotalOutstanding -= $remainingPayments;
+                $partyAging['not_due'] -= $remainingPayments;
+            }
+
+            // Include party if there is outstanding amount or invoices
+            if (abs($partyTotalOutstanding) > 0.01 || count($outstandingInvoices) > 0) {
+                $partyCount++;
+                $totalOutstanding += $partyTotalOutstanding;
+                $overdueAmount += $partyTotalOverdue;
+
+                foreach ($partyAging as $k => $amt) {
+                    $agingTotals[$k] += $amt;
+                }
+
+                $data[] = [
+                    'ledger' => $ledger,
+                    'invoices' => $outstandingInvoices,
+                    'total_outstanding' => $partyTotalOutstanding,
+                    'total_overdue' => $partyTotalOverdue,
+                    'aging_summary' => $partyAging
+                ];
             }
         }
 
@@ -79,34 +310,73 @@ class OutstandingService
         ];
     }
 
-    protected function getRelevantLedgers($type)
+    /**
+     * Get relevant Ledgers for Receivables (Debtors) or Payables (Creditors).
+     * Strictly avoids pulling unrelated asset/liability accounts like Cash, Bank, Taxes.
+     */
+    protected function getRelevantLedgers($type, $filters = [])
     {
+        $allGroups = AccountGroup::all();
         $groupRoots = [];
+
         if ($type === 'receivables') {
-            // Sundry Debtors
-            $groupRoots = \App\Models\AccountGroup::where('name', 'like', '%Sundry Debtor%')
-                                ->orWhere('name', 'like', '%Current Asset%')
-                                ->pluck('id')->toArray();
+            $groupRoots = $allGroups->filter(function($g) {
+                $n = strtolower($g->name);
+                return (str_contains($n, 'sundry debtor') || str_contains($n, 'debtor') || str_contains($n, 'customer') || str_contains($n, 'receivable'))
+                    && !str_contains($n, 'asset') && !str_contains($n, 'bank') && !str_contains($n, 'cash');
+            })->pluck('id')->toArray();
         } else {
-            // Sundry Creditors
-            $groupRoots = \App\Models\AccountGroup::where('name', 'like', '%Sundry Creditor%')
-                                ->orWhere('name', 'like', '%Current Liabilit%')
-                                ->pluck('id')->toArray();
+            $groupRoots = $allGroups->filter(function($g) {
+                $n = strtolower($g->name);
+                return (str_contains($n, 'sundry creditor') || str_contains($n, 'creditor') || str_contains($n, 'vendor') || str_contains($n, 'supplier') || str_contains($n, 'payable'))
+                    && !str_contains($n, 'liabilit') && !str_contains($n, 'tax') && !str_contains($n, 'duty');
+            })->pluck('id')->toArray();
         }
 
-        if (empty($groupRoots)) {
-            return collect();
-        }
-
-        $allGroups = \App\Models\AccountGroup::all();
         $relevantGroupIds = $this->getAllDescendantGroups($groupRoots, $allGroups);
 
-        return Ledger::whereIn('account_group_id', $relevantGroupIds)
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->get();
+        $query = Ledger::where('is_active', true)
+            ->where(function($q) use ($type, $relevantGroupIds) {
+                if (!empty($relevantGroupIds)) {
+                    $q->whereIn('account_group_id', $relevantGroupIds);
+                }
+                if ($type === 'receivables') {
+                    $q->orWhere('type', 'customer');
+                } else {
+                    $q->orWhere('type', 'vendor');
+                }
+            });
+
+        // Strictly exclude Cash, Bank, and Tax ledgers
+        $excludedGroupIds = $allGroups->filter(function($g) {
+            $n = strtolower($g->name);
+            return in_array($n, ['bank accounts', 'cash-in-hand', 'duties & taxes', 'direct expenses', 'direct income', 'indirect expenses', 'indirect income']);
+        })->pluck('id')->toArray();
+
+        if (!empty($excludedGroupIds)) {
+            $query->whereNotIn('account_group_id', $excludedGroupIds);
+        }
+
+        $query->where(function($q) {
+            $q->whereNull('type')
+              ->orWhereNotIn('type', ['bank', 'cash']);
+        });
+
+        // Apply filters directly at the SQL level
+        if (!empty($filters['ledger_id'])) {
+            $query->where('id', $filters['ledger_id']);
+        }
+        if (!empty($filters['search'])) {
+            $search = trim($filters['search']);
+            $query->where('name', 'like', "%{$search}%");
+        }
+
+        return $query->orderBy('name')->get();
     }
 
+    /**
+     * Recursively fetch all child account group IDs.
+     */
     protected function getAllDescendantGroups($groupRoots, $allGroups)
     {
         $result = $groupRoots;
@@ -117,177 +387,5 @@ class OutstandingService
         }
         
         return array_unique($result);
-    }
-
-    /**
-     * Calculate FIFO outstanding bills for a specific ledger.
-     */
-    protected function calculateFifoOutstanding(Ledger $ledger, $type, $financialYear, $asOfDate)
-    {
-        $asOfDateObj = Carbon::parse($asOfDate)->endOfDay();
-        $fyStartDate = Carbon::parse($financialYear->start_date)->startOfDay();
-
-        // 1. Get Opening Balance for the selected FY
-        $openingBalanceAmount = 0;
-        $openingBalanceType = 'Dr';
-        
-        $fyOpening = $ledger->getOpeningBalanceForYear($financialYear->id);
-        if ($fyOpening) {
-            $openingBalanceAmount = (float)$fyOpening->amount;
-            $openingBalanceType = $fyOpening->type;
-        } else {
-            // Fallback if no specific FY opening balances exist
-            if (!$ledger->openingBalances()->exists()) {
-                $openingBalanceAmount = (float)$ledger->opening_balance;
-                $openingBalanceType = $ledger->opening_balance_type;
-            }
-        }
-
-        // 2. Fetch all Journal Entries for this ledger in the current FY up to As Of Date
-        $entries = JournalEntry::with(['voucher'])
-            ->where('ledger_id', $ledger->id)
-            ->whereHas('voucher', function($q) use ($financialYear, $asOfDate) {
-                $q->where('status', 'Posted')
-                  ->where('financial_year_id', $financialYear->id)
-                  ->where('date', '<=', $asOfDate);
-            })
-            ->get()
-            ->sortBy(function($entry) {
-                return $entry->voucher->date->timestamp . '-' . $entry->id;
-            });
-
-        $invoiceType = $type === 'receivables' ? 'Dr' : 'Cr';
-        $paymentType = $type === 'receivables' ? 'Cr' : 'Dr';
-
-        $invoices = [];
-        $totalPayments = 0;
-
-        // 3. Setup Opening Balance as the first Invoice or Advance Payment
-        if ($openingBalanceAmount > 0) {
-            if ($openingBalanceType === $invoiceType) {
-                $invoices[] = [
-                    'is_opening' => true,
-                    'voucher_number' => 'Opening Balance',
-                    'date' => $fyStartDate,
-                    'due_date' => $fyStartDate, // Opening balance is immediately due
-                    'amount' => $openingBalanceAmount,
-                    'paid' => 0,
-                    'outstanding' => $openingBalanceAmount
-                ];
-            } else {
-                $totalPayments += $openingBalanceAmount;
-            }
-        }
-
-        // Try to get payment terms if linked to a customer/vendor
-        $paymentTermsDays = 0;
-        if ($type === 'receivables') {
-            $customer = Customer::where('company_name', $ledger->name)->first();
-            if ($customer && is_numeric($customer->payment_terms)) {
-                $paymentTermsDays = (int)$customer->payment_terms;
-            }
-        } else {
-            $vendor = Vendor::where('company_name', $ledger->name)->first();
-            if ($vendor && is_numeric($vendor->payment_terms)) {
-                $paymentTermsDays = (int)$vendor->payment_terms;
-            }
-        }
-
-        // 4. Process Journal Entries
-        foreach ($entries as $entry) {
-            if ($entry->type === $invoiceType) {
-                $vDate = Carbon::parse($entry->voucher->date);
-                $dueDate = $vDate->copy()->addDays($paymentTermsDays);
-                
-                $invoices[] = [
-                    'is_opening' => false,
-                    'voucher_id' => $entry->voucher->id,
-                    'voucher_number' => $entry->voucher->voucher_number,
-                    'type' => $entry->voucher->type,
-                    'date' => $vDate,
-                    'due_date' => $dueDate,
-                    'amount' => (float)$entry->amount,
-                    'paid' => 0,
-                    'outstanding' => (float)$entry->amount
-                ];
-            } else {
-                $totalPayments += (float)$entry->amount;
-            }
-        }
-
-        // 5. Apply FIFO Allocation
-        $remainingPayments = $totalPayments;
-        $outstandingInvoices = [];
-        $partyTotalOutstanding = 0;
-        $partyTotalOverdue = 0;
-        $agingSummary = [
-            'not_due' => 0,
-            '0_30' => 0,
-            '31_60' => 0,
-            '61_90' => 0,
-            '91_180' => 0,
-            '181_365' => 0,
-            'above_365' => 0,
-        ];
-
-        foreach ($invoices as &$inv) {
-            if ($remainingPayments >= $inv['amount']) {
-                $inv['paid'] = $inv['amount'];
-                $inv['outstanding'] = 0;
-                $remainingPayments -= $inv['amount'];
-            } elseif ($remainingPayments > 0) {
-                $inv['paid'] = $remainingPayments;
-                $inv['outstanding'] -= $remainingPayments;
-                $remainingPayments = 0;
-            }
-
-            if ($inv['outstanding'] > 0.01) { // Floating point safety
-                $days = $asOfDateObj->diffInDays($inv['due_date'], false); // Negative if overdue
-                
-                $bucket = 'not_due';
-                if ($days < 0) {
-                    $partyTotalOverdue += $inv['outstanding'];
-                    $overdueDays = abs($days);
-                    if ($overdueDays <= 30) $bucket = '0_30';
-                    elseif ($overdueDays <= 60) $bucket = '31_60';
-                    elseif ($overdueDays <= 90) $bucket = '61_90';
-                    elseif ($overdueDays <= 180) $bucket = '91_180';
-                    elseif ($overdueDays <= 365) $bucket = '181_365';
-                    else $bucket = 'above_365';
-                }
-                
-                $inv['days'] = $days < 0 ? abs($days) : 0;
-                $inv['bucket'] = $bucket;
-                
-                $agingSummary[$bucket] += $inv['outstanding'];
-                $partyTotalOutstanding += $inv['outstanding'];
-                $outstandingInvoices[] = $inv;
-            }
-        }
-
-        // Handle unallocated advances (when payments > invoices)
-        if ($remainingPayments > 0.01) {
-            $outstandingInvoices[] = [
-                'is_opening' => false,
-                'voucher_number' => 'Unallocated Advance / Excess',
-                'date' => $asOfDateObj,
-                'due_date' => $asOfDateObj,
-                'amount' => 0,
-                'paid' => $remainingPayments,
-                'outstanding' => -$remainingPayments, // Negative outstanding denotes advance
-                'days' => 0,
-                'bucket' => 'not_due'
-            ];
-            $partyTotalOutstanding -= $remainingPayments;
-            $agingSummary['not_due'] -= $remainingPayments;
-        }
-
-        return [
-            'ledger' => $ledger,
-            'invoices' => $outstandingInvoices,
-            'total_outstanding' => $partyTotalOutstanding,
-            'total_overdue' => $partyTotalOverdue,
-            'aging_summary' => $agingSummary
-        ];
     }
 }

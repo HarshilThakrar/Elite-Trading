@@ -58,7 +58,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <template x-for="(line, index) in lines" :key="index">
+                            <template x-for="(line, index) in lines" :key="line.uid">
                                 <tr>
                                     <td>
                                         <select :name="`lines[${index}][ledger_id]`" class="form-select" x-model="line.ledger_id" required>
@@ -78,7 +78,7 @@
                                         <input type="number" step="0.01" min="0" :name="`lines[${index}][credit]`" class="form-control text-end" x-model="line.credit" @input="line.debit = line.credit > 0 ? '' : line.debit">
                                     </td>
                                     <td class="text-center">
-                                        <button type="button" class="btn btn-sm btn-outline-danger" @click="removeLine(index)" :disabled="lines.length <= 2">
+                                        <button type="button" class="btn btn-sm btn-outline-danger" @click="removeLine(index)" :title="lines.length > 1 ? 'Delete Line' : 'Clear Line'">
                                             <i class="ph ph-trash"></i>
                                         </button>
                                     </td>
@@ -129,6 +129,26 @@
     function submitForm(action) {
         document.getElementById('formAction').value = action;
         
+        const alpineEl = document.querySelector('[x-data]');
+        if (window.Alpine && alpineEl) {
+            const alpineData = Alpine.$data(alpineEl);
+            if (alpineData) {
+                if (alpineData.lines.length < 2) {
+                    alert('Journal Voucher requires at least 2 lines (Debit and Credit). Please add a line.');
+                    return;
+                }
+                const filledLines = alpineData.lines.filter(l => l.ledger_id && ((parseFloat(l.debit) || 0) > 0 || (parseFloat(l.credit) || 0) > 0));
+                if (filledLines.length < 2) {
+                    alert('Please select a ledger and enter Debit or Credit for at least 2 lines.');
+                    return;
+                }
+                if (Math.abs(alpineData.difference) > 0.001) {
+                    alert('Journal Voucher is not balanced. Total Debit must equal Total Credit.');
+                    return;
+                }
+            }
+        }
+        
         if (action === 'post') {
             if (!confirm('Are you sure you want to post this Journal Voucher? This will update accounting balances.')) {
                 return;
@@ -138,18 +158,47 @@
         document.getElementById('jvForm').submit();
     }
 
+    @php
+        $initialLines = old('lines');
+        if (!is_array($initialLines) || empty($initialLines)) {
+            $initialLines = [
+                ['ledger_id' => '', 'narration' => '', 'debit' => '', 'credit' => ''],
+                ['ledger_id' => '', 'narration' => '', 'debit' => '', 'credit' => '']
+            ];
+        } else {
+            $initialLines = array_values($initialLines);
+        }
+    @endphp
+
     document.addEventListener('alpine:init', () => {
+        let lineCounter = 1;
+        const initialRaw = {!! json_encode($initialLines) !!};
+
         Alpine.data('journalVoucher', () => ({
-            lines: [
-                { ledger_id: '', narration: '', debit: '', credit: '' },
-                { ledger_id: '', narration: '', debit: '', credit: '' }
-            ],
+            lines: initialRaw.map(l => ({
+                uid: lineCounter++,
+                ledger_id: l.ledger_id || '',
+                narration: l.narration || '',
+                debit: l.debit || '',
+                credit: l.credit || ''
+            })),
             addLine() {
-                this.lines.push({ ledger_id: '', narration: '', debit: '', credit: '' });
+                this.lines.push({
+                    uid: lineCounter++,
+                    ledger_id: '',
+                    narration: '',
+                    debit: '',
+                    credit: ''
+                });
             },
             removeLine(index) {
-                if (this.lines.length > 2) {
+                if (this.lines.length > 1) {
                     this.lines.splice(index, 1);
+                } else if (this.lines.length === 1) {
+                    this.lines[0].ledger_id = '';
+                    this.lines[0].narration = '';
+                    this.lines[0].debit = '';
+                    this.lines[0].credit = '';
                 }
             },
             get totalDebit() {
@@ -159,10 +208,11 @@
                 return this.lines.reduce((sum, line) => sum + (parseFloat(line.credit) || 0), 0);
             },
             get difference() {
-                return this.totalDebit - this.totalCredit;
+                return Math.round((this.totalDebit - this.totalCredit) * 100) / 100;
             },
             get isValid() {
-                return this.totalDebit > 0 && this.totalCredit > 0 && this.difference === 0;
+                const filled = this.lines.filter(l => l.ledger_id && ((parseFloat(l.debit) || 0) > 0 || (parseFloat(l.credit) || 0) > 0));
+                return filled.length >= 2 && this.totalDebit > 0 && this.totalCredit > 0 && Math.abs(this.difference) < 0.001;
             },
             formatCurrency(value) {
                 return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(value);

@@ -56,6 +56,48 @@ class CustomerService extends BaseService
 
     public function deleteCustomer($id)
     {
-        return $this->customerRepository->delete($id);
+        $customer = $this->getCustomerById($id);
+        if (!$customer) {
+            return [
+                'status' => 'not_found',
+                'customer' => null,
+            ];
+        }
+
+        $hasSales = $customer->sales()->exists();
+        $hasQuotations = $customer->quotations()->exists();
+        $ledger = \App\Models\Ledger::where('type', 'customer')->where('reference_id', $customer->id)->first();
+        $hasTransactions = $ledger && $ledger->entries()->exists();
+
+        // If customer has linked records, cannot hard-delete without breaking DB constraints/audit
+        if ($hasSales || $hasQuotations || $hasTransactions) {
+            $alreadyInactive = !$customer->status;
+            $customer->update(['status' => false]);
+            if ($ledger) {
+                $ledger->update(['is_active' => false]);
+            }
+
+            return [
+                'status' => 'deactivated',
+                'already_inactive' => $alreadyInactive,
+                'customer' => $customer,
+                'hasSales' => $hasSales,
+                'hasQuotations' => $hasQuotations,
+                'hasTransactions' => $hasTransactions,
+            ];
+        }
+
+        // Clean hard-delete
+        \Illuminate\Support\Facades\DB::transaction(function () use ($customer, $ledger) {
+            if ($ledger) {
+                $ledger->delete();
+            }
+            $customer->delete();
+        });
+
+        return [
+            'status' => 'deleted',
+            'customer' => $customer,
+        ];
     }
 }

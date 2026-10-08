@@ -84,8 +84,22 @@
                         <td class="text-right" style="font-weight: bold;">
                             {{ number_format($inv['outstanding'], 2) }}
                         </td>
-                        <td class="text-center">{{ $inv['days'] > 0 ? $inv['days'] : '-' }}</td>
-                        <td class="text-center">{{ str_replace('_', '-', $inv['bucket']) }}</td>
+                        <td class="text-center">{{ $inv['days'] > 0 ? (int)$inv['days'] . ' days' : 'Not Due' }}</td>
+                        <td class="text-center">
+                            @php
+                                $bucketLabel = match($inv['bucket'] ?? 'not_due') {
+                                    'not_due' => 'Not Due',
+                                    '0_30' => '0 - 30 Days',
+                                    '31_60' => '31 - 60 Days',
+                                    '61_90' => '61 - 90 Days',
+                                    '91_180' => '91 - 180 Days',
+                                    '181_365' => '181 - 365 Days',
+                                    'above_365' => '> 365 Days',
+                                    default => str_replace('_', ' ', ucwords($inv['bucket'] ?? ''))
+                                };
+                            @endphp
+                            {{ $bucketLabel }}
+                        </td>
                     </tr>
                 @endforeach
             @endforeach

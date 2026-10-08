@@ -53,13 +53,13 @@
 
             @foreach($transactions as $t)
                 <tr>
-                    <td>{{ $t->voucher->date->format('d-m-Y') }}</td>
-                    <td>{{ $t->voucher->voucher_number }}</td>
-                    <td>{{ $t->voucher->type }}</td>
+                    <td>{{ $t->voucher && $t->voucher->date ? $t->voucher->date->format('d-m-Y') : '-' }}</td>
+                    <td>{{ $t->voucher ? $t->voucher->voucher_number : '-' }}</td>
+                    <td>{{ $t->voucher ? $t->voucher->type : '-' }}</td>
                     <td>
-                        {{ $t->particulars }}
-                        @if($t->narration || $t->voucher->narration)
-                            <br><small style="color: #666;">{{ $t->narration ?: $t->voucher->narration }}</small>
+                        {{ $t->particulars ?: '-' }}
+                        @if($t->narration || ($t->voucher && $t->voucher->narration))
+                            <br><small style="color: #666;">{{ $t->narration ?: ($t->voucher ? $t->voucher->narration : '') }}</small>
                         @endif
                     </td>
                     <td class="text-right text-success">

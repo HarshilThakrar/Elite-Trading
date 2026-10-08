@@ -29,6 +29,26 @@
     <style>
         /* Fixes for Bootstrap + Custom CSS conflicts */
         a { text-decoration: none; }
+        .btn-primary-custom {
+            background-color: #2563eb !important;
+            border-color: #2563eb !important;
+            color: #ffffff !important;
+            font-weight: 500;
+        }
+        .btn-primary-custom:hover,
+        .btn-primary-custom:focus,
+        .btn-primary-custom:active {
+            background-color: #1d4ed8 !important;
+            border-color: #1d4ed8 !important;
+            color: #ffffff !important;
+        }
+        .text-primary-custom {
+            color: #2563eb !important;
+        }
+        .bg-primary-custom {
+            background-color: #2563eb !important;
+            color: #ffffff !important;
+        }
         .app-container {
             display: flex;
             height: 100vh;
@@ -64,6 +84,86 @@
         #toast-container > div .toast-message, 
         #toast-container > div .toast-title {
             color: #ffffff !important;
+        }
+
+        /* Print visibility controls */
+        .print-only { display: none !important; }
+        @media print {
+            .sidebar, .sidebar *, .sidebar-overlay, .topbar, .topbar *, .collapse-btn, #mobile-menu-btn, .url-bar,
+            .btn, button, .btn-group, a.btn, a.btn *, .btn *, .icon-btn, .avatar-group, .navigation-controls,
+            .print-hide, .print-hide *, .no-print, .no-print *, .d-print-none, .d-print-none *,
+            .action-bar, .actions-card,
+            .dataTables_filter, .dataTables_length, .dataTables_info, .dataTables_paginate,
+            .pagination, .chat-widget, .chat-bubble, #chat-container, .floating-action,
+            .global-chat-widget, .global-chat-widget *, .chat-toggle-btn, .chat-toggle-btn *,
+            #chatToggleBtn, #chatWindow, .chat-window, .chat-window *, [class*="chat-"],
+            #toast-container, #toast-container *, .toast, .toastr, .toast-top-right,
+            .alert, .alert *, .alert-dismissible, .modal, .modal-backdrop, form.print-hide {
+                display: none !important;
+                visibility: hidden !important;
+                opacity: 0 !important;
+                position: absolute !important;
+                left: -9999px !important;
+                top: -9999px !important;
+                width: 0 !important;
+                height: 0 !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            .d-flex.print-hide, .print-hide.d-flex,
+            .d-flex.no-print, .no-print.d-flex,
+            .d-flex.d-print-none, .d-print-none.d-flex {
+                display: none !important;
+            }
+            html, body {
+                background: #fff !important;
+                color: #000 !important;
+                height: auto !important;
+                min-height: auto !important;
+                overflow: visible !important;
+                font-size: 10pt !important;
+            }
+            .app-container, .main-content, .page-content {
+                display: block !important;
+                position: static !important;
+                height: auto !important;
+                min-height: auto !important;
+                overflow: visible !important;
+                background: transparent !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+                max-width: 100% !important;
+            }
+            .card, .card-custom {
+                border: none !important;
+                box-shadow: none !important;
+                background: transparent !important;
+                margin-bottom: 10px !important;
+                padding: 0 !important;
+            }
+            .table-responsive { overflow: visible !important; }
+            table, .table {
+                width: 100% !important;
+                border-collapse: collapse !important;
+            }
+            .table th, .table td {
+                border: 1px solid #cbd5e1 !important;
+                padding: 6px 8px !important;
+                color: #000 !important;
+            }
+            .table thead th, .table-dark th {
+                background-color: #f1f5f9 !important;
+                color: #000 !important;
+                font-weight: bold !important;
+            }
+            .col-md-9, .col-lg-9, .col-md-8, .col-lg-8 {
+                width: 100% !important;
+                flex: 0 0 100% !important;
+                max-width: 100% !important;
+            }
+            .print-only { display: block !important; }
+            @page { size: A4 portrait; margin: 12mm 10mm; }
         }
     </style>
 </head>
@@ -103,6 +203,12 @@
                         <a href="{{ route('dashboard2') }}" class="menu-item {{ request()->routeIs('dashboard2') ? 'active' : '' }}">
                             <i class="ph ph-squares-four"></i> <span class="menu-text">Dashboard - 2</span>
                             @if(request()->routeIs('dashboard2'))<div class="active-indicator"></div>@endif
+                        </a>
+                    </li>
+                    <li>
+                        <a href="{{ route('leads.index') }}" class="menu-item {{ request()->routeIs('leads.*') ? 'active' : '' }}">
+                            <i class="ph ph-funnel"></i> <span class="menu-text">Lead Mgmt</span>
+                            @if(request()->routeIs('leads.*'))<div class="active-indicator"></div>@endif
                         </a>
                     </li>
                     @if(auth()->check() && (auth()->user()->hasAnyRole(['Super Admin', 'Admin']) || auth()->user()->can('view customers')))
@@ -273,6 +379,11 @@
                     <li>
                         <a href="{{ route('purchases.index') }}" class="menu-item {{ request()->routeIs('purchases.*') ? 'active' : '' }}">
                             <i class="ph ph-shopping-cart"></i> <span class="menu-text">Purchase Mgmt</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="{{ route('grn.index') }}" class="menu-item {{ request()->routeIs('grn.*') ? 'active' : '' }}">
+                            <i class="ph ph-package"></i> <span class="menu-text">Goods Receipt (GRN)</span>
                         </a>
                     </li>
                     @endif
@@ -469,10 +580,10 @@
             <!-- Topbar -->
             <header class="topbar">
                 <div class="navigation-controls">
-                    <button id="mobile-menu-btn">
+                    <button id="mobile-menu-btn" type="button" aria-label="Toggle navigation">
                         <i class="ph ph-list"></i>
                     </button>
-                    <span class="fw-bold" style="color: var(--primary-color); font-size: 28px;">@yield('header_title', 'Dashboard')</span>
+                    <span class="fw-bold topbar-header-title" style="color: var(--primary-color); font-size: 28px;">@yield('header_title', 'Dashboard')</span>
                 </div>
                 
                 <div class="url-bar d-none d-md-flex">
@@ -547,7 +658,7 @@
         @if(session('warning'))
             toastr.warning("{!! session('warning') !!}");
         @endif
-        @if($errors->any())
+        @if(isset($errors) && $errors->any())
             @foreach($errors->all() as $error)
                 toastr.error("{!! $error !!}");
             @endforeach
@@ -555,10 +666,56 @@
     </script>
 
     <!-- Custom Script (Uxerflow Theme) -->
-    <script src="{{ asset('js/script.js') }}"></script>
+    <script src="{{ asset('js/script.js') }}?v={{ time() }}"></script>
     <script>
         document.addEventListener("DOMContentLoaded", function() {
             const sidebar = document.querySelector('.sidebar');
+            const mobileBtn = document.getElementById('mobile-menu-btn');
+            const overlay = document.querySelector('.sidebar-overlay');
+            const collapseBtn = document.querySelector('.collapse-btn');
+
+            function closeMobileDrawer() {
+                if (sidebar) sidebar.classList.remove('mobile-open');
+                if (overlay) overlay.classList.remove('active');
+                document.body.classList.remove('sidebar-mobile-open');
+            }
+
+            if (mobileBtn && !mobileBtn.dataset.bound) {
+                mobileBtn.dataset.bound = "1";
+                mobileBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (window.innerWidth <= 991 && sidebar) {
+                        const isOpen = sidebar.classList.toggle('mobile-open');
+                        if (overlay) overlay.classList.toggle('active', isOpen);
+                        document.body.classList.toggle('sidebar-mobile-open', isOpen);
+                    } else if (sidebar) {
+                        sidebar.classList.toggle('collapsed');
+                    }
+                });
+            }
+
+            if (overlay && !overlay.dataset.bound) {
+                overlay.dataset.bound = "1";
+                overlay.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    closeMobileDrawer();
+                });
+            }
+
+            if (collapseBtn && !collapseBtn.dataset.bound) {
+                collapseBtn.dataset.bound = "1";
+                collapseBtn.addEventListener('click', function(e) {
+                    if (window.innerWidth <= 991) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        closeMobileDrawer();
+                    } else if (sidebar) {
+                        sidebar.classList.toggle('collapsed');
+                    }
+                });
+            }
+
             if (sidebar) {
                 // Restore scroll position
                 const scrollPos = sessionStorage.getItem('sidebarScrollPos');

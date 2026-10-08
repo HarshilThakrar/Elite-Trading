@@ -30,6 +30,7 @@ class ReportController extends Controller
                     'month' => $month,
                     'total_sales' => 0,
                     'total_orders' => 0,
+                    'total_quantity' => 0,
                     'items' => []
                 ];
             }
@@ -38,8 +39,10 @@ class ReportController extends Controller
             $monthlyDataMap[$key]['total_orders'] += 1;
 
             foreach ($sale->items as $item) {
-                $productName = $item->product ? ($item->product->description ?? $item->product->part_code) : 'Unknown Product';
-                $productUnit = $item->product ? $item->product->unit : 'NOS';
+                $productName = $item->product 
+                    ? ($item->product->item_name ?: ($item->product->description ?: $item->product->part_code)) 
+                    : 'Trading Item';
+                $productUnit = $item->product ? ($item->product->unit ?: 'NOS') : 'NOS';
                 
                 $itemKey = $productName . ' (' . $productUnit . ')';
                 if (!isset($monthlyDataMap[$key]['items'][$itemKey])) {
@@ -47,6 +50,7 @@ class ReportController extends Controller
                 }
                 
                 $monthlyDataMap[$key]['items'][$itemKey] += $item->quantity;
+                $monthlyDataMap[$key]['total_quantity'] += $item->quantity;
             }
         }
 
@@ -55,10 +59,14 @@ class ReportController extends Controller
         $monthlyData = [];
         foreach ($monthlyDataMap as $key => $data) {
             $monthName = Carbon::createFromDate($data['year'], $data['month'], 1)->format('F Y');
+            arsort($data['items']);
+
             $monthlyData[] = [
                 'month_name' => $monthName,
                 'total_sales' => $data['total_sales'],
                 'total_orders' => $data['total_orders'],
+                'total_quantity' => $data['total_quantity'],
+                'unique_items_count' => count($data['items']),
                 'year' => $data['year'],
                 'month' => $data['month'],
                 'items' => $data['items']
@@ -66,6 +74,16 @@ class ReportController extends Controller
         }
 
         return view('admin.reports.monthly-sales', compact('monthlyData'));
+    }
+
+    public function importHistoricalSales(Request $request)
+    {
+        try {
+            \Illuminate\Support\Facades\Artisan::call('import:sales');
+            return redirect()->back()->with('success', 'Historical sales and items imported successfully from Excel!');
+        } catch (\Exception $e) {
+            return redirect()->back()->with('error', 'Import failed: ' . $e->getMessage());
+        }
     }
 
     public function monthlyPurchases(Request $request)
@@ -88,6 +106,7 @@ class ReportController extends Controller
                     'month' => $month,
                     'total_purchases' => 0,
                     'total_orders' => 0,
+                    'total_quantity' => 0,
                     'items' => []
                 ];
             }
@@ -96,8 +115,10 @@ class ReportController extends Controller
             $monthlyDataMap[$key]['total_orders'] += 1;
 
             foreach ($purchase->items as $item) {
-                $productName = $item->product ? ($item->product->description ?? $item->product->part_code) : 'Unknown Product';
-                $productUnit = $item->product ? $item->product->unit : 'NOS';
+                $productName = $item->product 
+                    ? ($item->product->item_name ?: ($item->product->description ?: $item->product->part_code)) 
+                    : 'Purchased Item';
+                $productUnit = $item->product ? ($item->product->unit ?: 'NOS') : 'NOS';
                 
                 $itemKey = $productName . ' (' . $productUnit . ')';
                 if (!isset($monthlyDataMap[$key]['items'][$itemKey])) {
@@ -105,6 +126,7 @@ class ReportController extends Controller
                 }
                 
                 $monthlyDataMap[$key]['items'][$itemKey] += $item->quantity;
+                $monthlyDataMap[$key]['total_quantity'] += $item->quantity;
             }
         }
 
@@ -113,10 +135,14 @@ class ReportController extends Controller
         $monthlyData = [];
         foreach ($monthlyDataMap as $key => $data) {
             $monthName = Carbon::createFromDate($data['year'], $data['month'], 1)->format('F Y');
+            arsort($data['items']);
+
             $monthlyData[] = [
                 'month_name' => $monthName,
                 'total_purchases' => $data['total_purchases'],
                 'total_orders' => $data['total_orders'],
+                'total_quantity' => $data['total_quantity'],
+                'unique_items_count' => count($data['items']),
                 'year' => $data['year'],
                 'month' => $data['month'],
                 'items' => $data['items']

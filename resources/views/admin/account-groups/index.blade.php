@@ -4,6 +4,19 @@
 @section('header_title', 'Ledger Groups')
 
 @section('content')
+@if(session('success'))
+    <div class="alert alert-success alert-dismissible fade show mb-4 shadow-sm" role="alert">
+        <i class="ph ph-check-circle me-2"></i> {{ session('success') }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+@endif
+@if(session('error'))
+    <div class="alert alert-danger alert-dismissible fade show mb-4 shadow-sm" role="alert">
+        <i class="ph ph-warning-circle me-2"></i> {{ session('error') }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+@endif
+
 <div class="d-flex justify-content-end align-items-center mb-4">
     <a href="{{ route('account-groups.create') }}" class="btn btn-primary">
         <i class="ph ph-plus"></i> Create Group
@@ -87,17 +100,34 @@
                                 <span class="badge bg-danger-subtle text-danger">Inactive</span>
                             @endif
                         </td>
-                        <td class="text-end pe-4">
+                        <td class="text-end pe-4 text-nowrap">
                             <a href="{{ route('account-groups.show', $group->id) }}" class="btn btn-sm btn-outline-info" title="View"><i class="ph ph-eye"></i></a>
                             <a href="{{ route('account-groups.edit', $group->id) }}" class="btn btn-sm btn-outline-primary" title="Edit"><i class="ph ph-pencil"></i></a>
-                            @if(!$group->is_system && $group->children()->count() == 0 && $group->ledgers_count == 0)
-                                <form action="{{ route('account-groups.destroy', $group->id) }}" method="POST" class="d-inline-block" onsubmit="return confirm('Are you sure you want to delete this Ledger Group?');">
+                            
+                            @php
+                                $canDelete = !$group->is_system && $group->children_count == 0 && $group->ledgers_count == 0;
+                                $deleteReason = '';
+                                if ($group->is_system) {
+                                    $deleteReason = "Cannot delete '{$group->name}': This is a system-defined Ledger Group required for ERP accounting.";
+                                } elseif ($group->children_count > 0) {
+                                    $deleteReason = "Cannot delete '{$group->name}': It contains {$group->children_count} child groups. Please reassign or delete child groups first.";
+                                } elseif ($group->ledgers_count > 0) {
+                                    $deleteReason = "Cannot delete '{$group->name}': It currently has {$group->ledgers_count} active ledgers assigned. Please reassign or delete those ledgers first.";
+                                }
+                            @endphp
+
+                            @if($canDelete)
+                                <form action="{{ route('account-groups.destroy', $group->id) }}" method="POST" class="d-inline-block" onsubmit="return confirm('Are you sure you want to delete \'{{ addslashes($group->name) }}\'? This action cannot be undone.');">
                                     @csrf
                                     @method('DELETE')
-                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"><i class="ph ph-trash"></i></button>
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete Group">
+                                        <i class="ph ph-trash"></i>
+                                    </button>
                                 </form>
                             @else
-                                <button type="button" class="btn btn-sm btn-outline-secondary disabled" title="Cannot delete"><i class="ph ph-trash"></i></button>
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="alert('{{ addslashes($deleteReason) }}')" title="Delete Group">
+                                    <i class="ph ph-trash"></i>
+                                </button>
                             @endif
                         </td>
                     </tr>

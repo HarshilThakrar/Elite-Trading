@@ -146,6 +146,11 @@ class SaleService extends BaseService
     {
         $lastSale = \App\Models\Sale::orderBy('id', 'desc')->first();
         $nextId = $lastSale ? $lastSale->id + 1 : 1;
-        return 'SO-' . date('Ymd') . '-' . str_pad($nextId, 4, '0', STR_PAD_LEFT);
+        $invoice = 'SO-' . date('Ymd') . '-' . str_pad($nextId, 4, '0', STR_PAD_LEFT);
+        while (\App\Models\Sale::where('invoice_number', $invoice)->exists()) {
+            $nextId++;
+            $invoice = 'SO-' . date('Ymd') . '-' . str_pad($nextId, 4, '0', STR_PAD_LEFT);
+        }
+        return $invoice;
     }
 }

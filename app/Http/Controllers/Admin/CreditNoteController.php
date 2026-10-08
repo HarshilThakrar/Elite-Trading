@@ -391,6 +391,7 @@ class CreditNoteController extends Controller
     {
         $voucher = Voucher::where('type', 'Credit Note')->with(['entries.ledger', 'financialYear', 'reference'])->findOrFail($id);
         $pdf = Pdf::loadView('admin.credit-notes.pdf', compact('voucher'));
-        return $pdf->download('Credit_Note_' . $voucher->voucher_number . '.pdf');
+        $safeVch = str_replace(['/', '\\', ' '], ['-', '-', '_'], $voucher->voucher_number ?? (string)$voucher->id);
+        return $pdf->download('Credit_Note_' . $safeVch . '.pdf');
     }
 }

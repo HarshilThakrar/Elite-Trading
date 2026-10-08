@@ -214,10 +214,10 @@ class DispatchController extends Controller
             $fpdi->useTemplate($dispatchTpl, 0, 0, 210);
         }
 
-        $finalPdfOutput = $fpdi->Output('S');
+        $safeDisp = str_replace(['/', '\\', ' '], ['-', '-', '_'], $dispatch->dispatch_number ?? (string)$dispatch->id);
         
         return response($finalPdfOutput)
             ->header('Content-Type', 'application/pdf')
-            ->header('Content-Disposition', 'attachment; filename="Delivery_Note_' . $dispatch->dispatch_number . '.pdf"');
+            ->header('Content-Disposition', 'attachment; filename="Delivery_Note_' . $safeDisp . '.pdf"');
     }
 }

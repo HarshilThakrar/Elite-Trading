@@ -145,9 +145,49 @@ class CustomerController extends Controller
 
     public function destroy($id)
     {
-        // Instead of deleting, mark as inactive
-        $this->customerService->updateCustomer($id, ['status' => 0]);
-        return redirect()->route('customers.index')->with('success', 'Customer marked as inactive successfully.');
+        try {
+            $result = $this->customerService->deleteCustomer($id);
+            $customer = $result['customer'];
+
+            if (!$customer || $result['status'] === 'not_found') {
+                return redirect()->route('customers.index')->with('error', 'Customer not found.');
+            }
+
+            if ($result['status'] === 'deleted') {
+                return redirect()->route('customers.index')->with(
+                    'success',
+                    "Customer '{$customer->company_name}' has been deleted successfully."
+                );
+            }
+
+            if (!empty($result['already_inactive'])) {
+                return redirect()->route('customers.index')->with(
+                    'warning',
+                    "Customer '{$customer->company_name}' has linked sales or accounting records and cannot be permanently deleted. It is already marked as Inactive."
+                );
+            }
+
+            return redirect()->route('customers.index')->with(
+                'warning',
+                "Customer '{$customer->company_name}' has linked sales orders or transaction history and cannot be permanently deleted. It has been deactivated (marked as Inactive) instead."
+            );
+
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Foreign key fallback
+            try {
+                $customer = $this->customerService->getCustomerById($id);
+                if ($customer) {
+                    $customer->update(['status' => false]);
+                }
+            } catch (\Exception $ex) {}
+
+            return redirect()->route('customers.index')->with(
+                'warning',
+                "Customer has linked database records and could not be permanently deleted. It has been deactivated instead."
+            );
+        } catch (\Exception $e) {
+            return redirect()->route('customers.index')->with('error', 'Error deleting customer: ' . $e->getMessage());
+        }
     }
 
     public function toggleStatus($id)

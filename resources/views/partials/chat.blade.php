@@ -1,12 +1,12 @@
 @if(auth()->check())
-<div class="global-chat-widget">
+<div class="global-chat-widget d-print-none print-hide no-print">
     <!-- Chat Button -->
-    <button class="chat-toggle-btn" id="chatToggleBtn">
+    <button class="chat-toggle-btn d-print-none print-hide no-print" id="chatToggleBtn">
         <i class="ph ph-chat-circle-dots"></i>
     </button>
 
     <!-- Chat Window -->
-    <div class="chat-window d-none" id="chatWindow">
+    <div class="chat-window d-none d-print-none print-hide no-print" id="chatWindow">
         <div class="chat-header">
             <h6 class="mb-0 fw-bold"><i class="ph ph-users me-2"></i>Global Chat</h6>
             <button class="close-chat-btn" id="closeChatBtn"><i class="ph ph-x"></i></button>
@@ -44,6 +44,34 @@
     right: 20px;
     z-index: 1050;
     font-family: 'Inter', sans-serif;
+}
+
+@media print {
+    .global-chat-widget,
+    .global-chat-widget *,
+    .chat-toggle-btn,
+    .chat-toggle-btn *,
+    .chat-window,
+    .chat-window *,
+    #chatToggleBtn,
+    #chatWindow,
+    .chat-messages,
+    .chat-input-area,
+    [class*="chat-"] {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        position: absolute !important;
+        left: -9999px !important;
+        top: -9999px !important;
+        width: 0 !important;
+        height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: none !important;
+        box-shadow: none !important;
+        pointer-events: none !important;
+    }
 }
 
 .chat-toggle-btn {
@@ -319,6 +347,21 @@ document.addEventListener("DOMContentLoaded", function() {
             .catch(err => console.error(err));
         });
     }
+
+    // Hide chat widget completely before browser print preview
+    window.addEventListener('beforeprint', function() {
+        const chatWidget = document.querySelector('.global-chat-widget');
+        if (chatWidget) {
+            chatWidget.style.setProperty('display', 'none', 'important');
+        }
+    });
+
+    window.addEventListener('afterprint', function() {
+        const chatWidget = document.querySelector('.global-chat-widget');
+        if (chatWidget) {
+            chatWidget.style.removeProperty('display');
+        }
+    });
 });
 </script>
 @endif

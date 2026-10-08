@@ -5,8 +5,25 @@
 
 @section('content')
 <div class="card card-custom">
-    <div class="card-header bg-white p-3">
+    <div class="card-header bg-white p-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h5 class="mb-0 fw-bold text-primary-custom">Edit Quotation: {{ $quotation->quotation_number }}</h5>
+        <div class="d-flex align-items-center gap-2">
+            @if($quotation->status === 'Converted')
+                <span class="badge bg-success-subtle text-success border border-success px-3 py-2 rounded-pill d-inline-flex align-items-center" style="font-size: 0.85rem;">
+                    <i class="bi bi-check-circle-fill me-1"></i> Converted to Sales Order
+                </span>
+            @else
+                <form action="{{ route('quotations.convertToSale', $quotation->id) }}" method="POST" class="d-inline m-0 p-0" onsubmit="return confirm('Are you sure you want to convert Quotation {{ $quotation->quotation_number }} to a Sales Order?');">
+                    @csrf
+                    <button type="submit" class="btn btn-sm btn-success text-white shadow-sm d-inline-flex align-items-center gap-1" title="Convert to Sales Order">
+                        <i class="bi bi-cart-plus"></i> Convert to Sales Order
+                    </button>
+                </form>
+            @endif
+            <a href="{{ route('quotations.index') }}" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1">
+                <i class="bi bi-arrow-left"></i> Back
+            </a>
+        </div>
     </div>
     <div class="card-body">
         <form action="{{ route('quotations.update', $quotation->id) }}" method="POST">

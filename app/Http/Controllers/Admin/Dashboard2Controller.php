@@ -26,10 +26,12 @@ class Dashboard2Controller extends Controller
             $totalSales = $totalPurchases = $totalReceipts = $totalPayments = $bankBalance = $cashBalance = $unreconciledBank = 0;
             $months = []; $incomeData = []; $expenseData = []; $topLedgers = [];
             $arBalance = $arCount = $apBalance = $apCount = 0;
+            $arParties = []; $apParties = [];
             $salesCount = $purchaseCount = $paymentCount = $receiptCount = $contraCount = $journalCount = 0;
             $unreconciledTxns = $unreconciledAmt = 0;
             $lastReconciledOn = 'N/A';
             $recentVouchers = collect();
+            $allVouchers = collect();
 
             return view('admin.dashboard2.index', compact(
                 'financialYears', 'selectedFyId', 'selectedFy',
@@ -37,10 +39,11 @@ class Dashboard2Controller extends Controller
                 'cashBalance', 'unreconciledBank',
                 'months', 'incomeData', 'expenseData',
                 'topLedgers',
-                'arBalance', 'arCount', 'apBalance', 'apCount',
+                'arBalance', 'arCount', 'arParties',
+                'apBalance', 'apCount', 'apParties',
                 'salesCount', 'purchaseCount', 'paymentCount', 'receiptCount', 'contraCount', 'journalCount',
                 'unreconciledTxns', 'unreconciledAmt', 'lastReconciledOn',
-                'recentVouchers'
+                'recentVouchers', 'allVouchers'
             ));
         }
 
@@ -156,25 +159,41 @@ class Dashboard2Controller extends Controller
         // 5. Outstanding Summary
         $arBalance = 0;
         $arCount = 0;
+        $arParties = [];
         $debtors = Ledger::whereHas('accountGroup', function($q) { $q->where('name', 'Sundry Debtors'); })->get();
         foreach ($debtors as $l) {
             $bal = $engine->getLedgerBalance($l->id, $selectedFyId);
             if ($bal['balance'] > 0 && $bal['type'] == 'Dr') {
                 $arBalance += $bal['balance'];
                 $arCount++;
+                $arParties[] = [
+                    'id' => $l->id,
+                    'name' => $l->name,
+                    'balance' => $bal['balance'],
+                    'type' => $bal['type'],
+                ];
             }
         }
+        usort($arParties, function($a, $b) { return $b['balance'] <=> $a['balance']; });
 
         $apBalance = 0;
         $apCount = 0;
+        $apParties = [];
         $creditors = Ledger::whereHas('accountGroup', function($q) { $q->where('name', 'Sundry Creditors'); })->get();
         foreach ($creditors as $l) {
             $bal = $engine->getLedgerBalance($l->id, $selectedFyId);
             if ($bal['balance'] > 0 && $bal['type'] == 'Cr') {
                 $apBalance += $bal['balance'];
                 $apCount++;
+                $apParties[] = [
+                    'id' => $l->id,
+                    'name' => $l->name,
+                    'balance' => $bal['balance'],
+                    'type' => $bal['type'],
+                ];
             }
         }
+        usort($apParties, function($a, $b) { return $b['balance'] <=> $a['balance']; });
 
         // 6. Voucher Summary
         $voucherCounts = Voucher::where('financial_year_id', $selectedFyId)
@@ -197,13 +216,15 @@ class Dashboard2Controller extends Controller
         $lastReconciled = BankStatementTransaction::where('reconciliation_status', 'Reconciled')->orderBy('updated_at', 'desc')->first();
         $lastReconciledOn = $lastReconciled ? $lastReconciled->updated_at->format('d-M-Y') : 'N/A';
 
-        // 8. Recent Vouchers
-        $recentVouchers = Voucher::where('financial_year_id', $selectedFyId)
+        // 8. Recent Vouchers & All Vouchers
+        $allVouchers = Voucher::with(['entries.ledger'])
+            ->where('financial_year_id', $selectedFyId)
             ->where('status', 'Posted')
             ->orderBy('date', 'desc')
             ->orderBy('id', 'desc')
-            ->take(5)
             ->get();
+
+        $recentVouchers = $allVouchers->take(5);
 
         return view('admin.dashboard2.index', compact(
             'financialYears', 'selectedFyId', 'selectedFy',
@@ -211,10 +232,11 @@ class Dashboard2Controller extends Controller
             'cashBalance', 'unreconciledBank',
             'months', 'incomeData', 'expenseData',
             'topLedgers',
-            'arBalance', 'arCount', 'apBalance', 'apCount',
+            'arBalance', 'arCount', 'arParties',
+            'apBalance', 'apCount', 'apParties',
             'salesCount', 'purchaseCount', 'paymentCount', 'receiptCount', 'contraCount', 'journalCount',
             'unreconciledTxns', 'unreconciledAmt', 'lastReconciledOn',
-            'recentVouchers'
+            'recentVouchers', 'allVouchers'
         ));
     }
 }

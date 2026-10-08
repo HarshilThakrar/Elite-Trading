@@ -131,7 +131,7 @@
         </div>
     </div>
 
-    <div class="col-md-3">
+    <div class="col-md-3 print-hide">
         <div class="card card-custom sticky-top" style="top: 20px;">
             <div class="card-header bg-white p-3 border-bottom">
                 <h6 class="mb-0 fw-bold">Actions</h6>

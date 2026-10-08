@@ -13,7 +13,7 @@ class AccountGroupController extends Controller
      */
     public function index(Request $request)
     {
-        $query = AccountGroup::with('parent')->withCount('ledgers');
+        $query = AccountGroup::with('parent')->withCount(['ledgers', 'children']);
 
         if ($request->filled('search')) {
             $query->where('name', 'like', '%' . $request->search . '%');

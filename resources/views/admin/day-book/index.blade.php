@@ -1,15 +1,26 @@
 @extends('layouts.app')
 
 @section('content')
+@php
+    $exportParams = [
+        'financial_year_id' => $financialYear?->id,
+        'from_date' => $fromDate,
+        'to_date' => $toDate,
+        'voucher_type' => $filters['voucher_type'] ?? request('voucher_type'),
+        'ledger_id' => $filters['ledger_id'] ?? request('ledger_id'),
+        'search' => $filters['search'] ?? request('search'),
+        'voucher_number' => $filters['voucher_number'] ?? request('voucher_number'),
+    ];
+@endphp
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h2 class="h3 mb-0 text-gray-800">Day Book</h2>
             <p class="text-muted mb-0">Accounting Transaction Register</p>
         </div>
-        <div class="btn-group shadow-sm">
-            <a href="{{ route('day-book.export', request()->all()) }}" class="btn btn-light"><i class="ph ph-export"></i> Export</a>
-            <a href="{{ route('day-book.pdf', request()->all()) }}" class="btn btn-light" target="_blank"><i class="ph ph-file-pdf"></i> PDF</a>
+        <div class="btn-group shadow-sm print-hide">
+            <a href="{{ route('day-book.export', $exportParams) }}" class="btn btn-light"><i class="ph ph-export"></i> Export</a>
+            <a href="{{ route('day-book.pdf', $exportParams) }}" class="btn btn-light" target="_blank"><i class="ph ph-file-pdf"></i> PDF</a>
             <button class="btn btn-light" onclick="window.print()"><i class="ph ph-printer"></i> Print</button>
         </div>
     </div>
@@ -250,10 +261,55 @@
 
 <style>
 @media print {
-    body * { visibility: hidden; }
-    .print-hide { display: none !important; }
-    .print-container, .print-container * { visibility: visible; }
-    .print-container { position: absolute; left: 0; top: 0; width: 100%; }
+    .print-hide, .no-print, .d-print-none,
+    .print-hide *, .no-print *, .d-print-none *,
+    .navbar, .sidebar, .topbar, .topbar *, .btn, button, a.btn,
+    .global-chat-widget, .global-chat-widget *, .chat-toggle-btn, #chatToggleBtn, #chatWindow, .chat-window,
+    .alert, .alert-dismissible, #toast-container, #toast-container *,
+    .card-footer, .pagination {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+    }
+    .print-only {
+        display: block !important;
+        visibility: visible !important;
+    }
+    html, body {
+        background: #fff !important;
+        color: #000 !important;
+        font-size: 9pt !important;
+        overflow: visible !important;
+        height: auto !important;
+    }
+    .container-fluid {
+        padding: 0 !important;
+        margin: 0 !important;
+        max-width: 100% !important;
+        width: 100% !important;
+    }
+    .card {
+        border: 1px solid #cbd5e1 !important;
+        box-shadow: none !important;
+        background: transparent !important;
+    }
+    .table-responsive {
+        overflow: visible !important;
+    }
+    table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        font-size: 8.5pt !important;
+    }
+    table th, table td {
+        border: 1px solid #cbd5e1 !important;
+        padding: 4px 6px !important;
+        color: #000 !important;
+    }
+    @page {
+        size: A4 portrait;
+        margin: 12mm 10mm;
+    }
 }
 </style>
 @endsection

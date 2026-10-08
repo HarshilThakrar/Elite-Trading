@@ -57,10 +57,21 @@ class OutstandingController extends Controller
 
     public function getReportData(Request $request)
     {
+        $financialYears = FinancialYear::orderBy('start_date', 'desc')->get();
         $fyId = $request->input('financial_year_id');
         $financialYear = $fyId ? FinancialYear::find($fyId) : $this->financialYearService->getCurrentFinancialYear();
-        $asOfDate = $request->input('as_of_date', Carbon::now()->format('Y-m-d'));
+        
+        if (!$financialYear) {
+            $financialYear = $financialYears->first();
+        }
+
+        $defaultAsOf = $financialYear ? min($financialYear->end_date, Carbon::now())->format('Y-m-d') : date('Y-m-d');
+        $asOfDate = $request->input('as_of_date', $defaultAsOf);
+        
         $type = $request->input('type', 'receivables');
+        if (!in_array($type, ['receivables', 'payables'])) {
+            $type = 'receivables';
+        }
         
         $filters = [
             'ledger_id' => $request->input('ledger_id'),
@@ -142,10 +153,12 @@ class OutstandingController extends Controller
     {
         $data = $this->getReportData($request);
         $type = ucfirst($data['type']);
+        $safeName = "outstanding_{$type}_" . date('Ymd_His');
         
         if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class)) {
             $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('admin.outstanding.pdf', $data);
-            return $pdf->download("outstanding_{$type}.pdf");
+            $pdf->setPaper('a4', 'landscape');
+            return $pdf->stream("{$safeName}.pdf");
         }
         
         return view('admin.outstanding.pdf', $data);

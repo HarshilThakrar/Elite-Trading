@@ -90,15 +90,82 @@ class VendorController extends Controller
         $data['status'] = $request->has('status');
         $data['lead_time_days'] = $data['lead_time_days'] ?? 0;
 
-        $this->vendorService->updateVendor($id, $data);
+        $vendor = $this->vendorService->updateVendor($id, $data);
+
+        // Keep linked ledger in sync
+        $ledger = \App\Models\Ledger::where('type', 'vendor')->where('reference_id', $id)->first();
+        if ($ledger) {
+            $ledger->update([
+                'name' => $vendor->company_name,
+                'is_active' => (bool)$data['status'],
+            ]);
+        }
 
         return redirect()->route('vendors.index')->with('success', 'Vendor updated successfully.');
     }
 
     public function destroy($id)
     {
-        $this->vendorService->deleteVendor($id);
-        return redirect()->route('vendors.index')->with('success', 'Vendor deleted successfully.');
+        try {
+            $result = $this->vendorService->deleteVendor($id);
+            $vendor = $result['vendor'];
+
+            if ($result['status'] === 'deleted') {
+                return redirect()->route('vendors.index')->with(
+                    'success',
+                    "Vendor '{$vendor->company_name}' has been deleted successfully."
+                );
+            }
+
+            if (!empty($result['already_inactive'])) {
+                return redirect()->route('vendors.index')->with(
+                    'warning',
+                    "Vendor '{$vendor->company_name}' has linked purchase records or transaction history and cannot be deleted. It is already marked as Inactive."
+                );
+            }
+
+            return redirect()->route('vendors.index')->with(
+                'warning',
+                "Vendor '{$vendor->company_name}' has linked purchase orders or transaction history and cannot be permanently deleted. It has been deactivated (marked as Inactive) instead."
+            );
+
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Foreign key fallback
+            try {
+                $vendor = $this->vendorService->getVendorById($id);
+                if ($vendor) {
+                    $vendor->update(['status' => false]);
+                }
+            } catch (\Exception $ex) {}
+
+            return redirect()->route('vendors.index')->with(
+                'warning',
+                "Vendor has linked database records and cannot be permanently deleted. It has been marked as Inactive instead."
+            );
+        } catch (\Exception $e) {
+            return redirect()->route('vendors.index')->with(
+                'error',
+                "Error deleting vendor: " . $e->getMessage()
+            );
+        }
+    }
+
+    public function toggleStatus($id)
+    {
+        $vendor = $this->vendorService->getVendorById($id);
+        $newStatus = $vendor->status ? 0 : 1;
+        $this->vendorService->updateVendor($id, ['status' => $newStatus]);
+
+        $ledger = \App\Models\Ledger::where('type', 'vendor')->where('reference_id', $id)->first();
+        if ($ledger) {
+            $ledger->update(['is_active' => (bool)$newStatus]);
+        }
+
+        $message = $newStatus 
+            ? "Vendor '{$vendor->company_name}' activated successfully." 
+            : "Vendor '{$vendor->company_name}' deactivated successfully.";
+
+        return redirect()->route('vendors.index')->with('success', $message);
     }
 
     public function import(Request $request)

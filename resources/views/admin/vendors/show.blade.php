@@ -4,6 +4,25 @@
 @section('header_title', 'Vendor Profile')
 
 @section('content')
+@if(session('success'))
+    <div class="alert alert-success alert-dismissible fade show mb-3" role="alert">
+        <i class="bi bi-check-circle-fill me-2"></i> {{ session('success') }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+@endif
+@if(session('warning'))
+    <div class="alert alert-warning alert-dismissible fade show mb-3" role="alert">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i> {{ session('warning') }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+@endif
+@if(session('error'))
+    <div class="alert alert-danger alert-dismissible fade show mb-3" role="alert">
+        <i class="bi bi-x-circle-fill me-2"></i> {{ session('error') }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+@endif
+
 <div class="row">
     <div class="col-md-4">
         <div class="card card-custom mb-4">
@@ -56,8 +75,21 @@
                             <div class="col-sm-4 text-muted">Lead Time</div>
                             <div class="col-sm-8 fw-semibold">{{ $vendor->lead_time_days }} Days</div>
                         </div>
-                        <div class="mt-4">
+                        <div class="mt-4 d-flex align-items-center flex-wrap gap-2">
                             <a href="{{ route('vendors.edit', $vendor->id) }}" class="btn btn-warning text-white"><i class="bi bi-pencil me-1"></i> Edit Profile</a>
+                            
+                            <form action="{{ route('vendors.toggleStatus', $vendor->id) }}" method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to {{ $vendor->status ? 'deactivate' : 'activate' }} this vendor?');">
+                                @csrf
+                                <button type="submit" class="btn {{ $vendor->status ? 'btn-outline-danger' : 'btn-outline-success' }}">
+                                    <i class="bi {{ $vendor->status ? 'bi-person-x' : 'bi-person-check' }} me-1"></i> {{ $vendor->status ? 'Deactivate Vendor' : 'Activate Vendor' }}
+                                </button>
+                            </form>
+
+                            <form action="{{ route('vendors.destroy', $vendor->id) }}" method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to delete vendor \'{{ addslashes($vendor->company_name) }}\'?\n\nNote: If this vendor has existing purchase records or bills, it will be safely deactivated to protect audit history.');">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" class="btn btn-danger"><i class="bi bi-trash me-1"></i> Delete Vendor</button>
+                            </form>
                         </div>
                     </div>
                     <div class="tab-pane fade" id="purchase" role="tabpanel">

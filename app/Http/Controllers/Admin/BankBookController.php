@@ -57,8 +57,8 @@ class BankBookController extends Controller
             }
         }
 
-        if (!$ledgerId && $bankLedgers->isNotEmpty()) {
-            $ledgerId = $bankLedgers->first()->id;
+        if (!$ledgerId) {
+            $ledgerId = 'all';
         }
 
         $filters = [
@@ -132,50 +132,88 @@ class BankBookController extends Controller
 
     private function getReportData(Request $request)
     {
+        $financialYears = FinancialYear::orderBy('start_date', 'desc')->get();
+        $bankLedgers = $this->bankBookService->getBankLedgers();
+
         $fyId = $request->input('financial_year_id');
         $ledgerId = $request->input('ledger_id');
         
         $financialYear = $fyId ? FinancialYear::find($fyId) : $this->financialYearService->getCurrentFinancialYear();
         if (!$financialYear) {
-            $financialYear = FinancialYear::orderBy('start_date', 'desc')->first();
+            $financialYear = $financialYears->first();
         }
 
-        $fromDate = $request->input('from_date', date('Y-m-d'));
-        $toDate = $request->input('to_date', date('Y-m-d'));
+        if (!$ledgerId) {
+            $ledgerId = 'all';
+        }
+
+        if ($financialYear) {
+            $defaultFrom = $financialYear->start_date->format('Y-m-d');
+            $defaultTo = min($financialYear->end_date, Carbon::now())->format('Y-m-d');
+        } else {
+            $defaultFrom = date('Y-m-d');
+            $defaultTo = date('Y-m-d');
+        }
+
+        $fromDate = $request->input('from_date', $defaultFrom);
+        $toDate = $request->input('to_date', $defaultTo);
         
-        $ledgerName = $ledgerId === 'all' ? 'All Bank Accounts' : \App\Models\Ledger::findOrFail($ledgerId)->name;
+        // Ensure dates are within FY
+        if ($financialYear) {
+            if ($fromDate < $financialYear->start_date->format('Y-m-d')) {
+                $fromDate = $financialYear->start_date->format('Y-m-d');
+            }
+            if ($toDate > $financialYear->end_date->format('Y-m-d')) {
+                $toDate = $financialYear->end_date->format('Y-m-d');
+            }
+        }
+
+        $ledgerName = 'All Bank Accounts';
+        if ($ledgerId && $ledgerId !== 'all') {
+            $ledger = \App\Models\Ledger::find($ledgerId);
+            $ledgerName = $ledger ? $ledger->name : ($bankLedgers->first()->name ?? 'Bank Account');
+            if (!$ledger && $bankLedgers->isNotEmpty()) {
+                $ledgerId = $bankLedgers->first()->id;
+            }
+        }
 
         $filters = [
             'voucher_type' => $request->input('voucher_type'),
             'search' => $request->input('search')
         ];
 
-        $openingBalance = $this->bankBookService->getOpeningBalance($ledgerId, $financialYear, $fromDate);
-        $query = $this->bankBookService->getTransactionsQuery($ledgerId, $financialYear->id, $fromDate, $toDate, $filters);
-        $transactions = $query->get();
+        $transactions = collect();
+        $openingBalance = ['amount' => 0, 'type' => 'Dr', 'signed_amount' => 0];
+        $summary = ['receipts' => 0, 'payments' => 0];
 
-        $journalEntryIds = $transactions->pluck('id')->toArray();
-        $reconStatuses = [];
-        if (!empty($journalEntryIds)) {
-            $reconStatuses = BankStatementTransaction::whereIn('matched_journal_entry_id', $journalEntryIds)
-                ->pluck('reconciliation_status', 'matched_journal_entry_id')
-                ->toArray();
-        }
+        if ($ledgerId && $financialYear) {
+            $openingBalance = $this->bankBookService->getOpeningBalance($ledgerId, $financialYear, $fromDate);
+            $query = $this->bankBookService->getTransactionsQuery($ledgerId, $financialYear->id, $fromDate, $toDate, $filters);
+            $transactions = $query->get();
 
-        $currentBalance = $openingBalance['signed_amount'];
-        foreach ($transactions as $transaction) {
-            if ($transaction->type === 'Dr') {
-                $currentBalance += (float) $transaction->amount;
-            } else {
-                $currentBalance -= (float) $transaction->amount;
+            $journalEntryIds = $transactions->pluck('id')->toArray();
+            $reconStatuses = [];
+            if (!empty($journalEntryIds)) {
+                $reconStatuses = BankStatementTransaction::whereIn('matched_journal_entry_id', $journalEntryIds)
+                    ->pluck('reconciliation_status', 'matched_journal_entry_id')
+                    ->toArray();
             }
-            $transaction->running_balance = abs($currentBalance);
-            $transaction->running_balance_type = $currentBalance >= 0 ? 'Dr' : 'Cr';
-            $transaction->particulars = $this->bankBookService->getParticulars($transaction);
-            $transaction->recon_status = $reconStatuses[$transaction->id] ?? 'Unreconciled';
-        }
 
-        $summary = $this->bankBookService->getSummary($ledgerId, $financialYear->id, $fromDate, $toDate, $filters);
+            $currentBalance = $openingBalance['signed_amount'];
+            foreach ($transactions as $transaction) {
+                if ($transaction->type === 'Dr') {
+                    $currentBalance += (float) $transaction->amount;
+                } else {
+                    $currentBalance -= (float) $transaction->amount;
+                }
+                $transaction->running_balance = abs($currentBalance);
+                $transaction->running_balance_type = $currentBalance >= 0 ? 'Dr' : 'Cr';
+                $transaction->particulars = $this->bankBookService->getParticulars($transaction);
+                $transaction->recon_status = $reconStatuses[$transaction->id] ?? 'Unreconciled';
+            }
+
+            $summary = $this->bankBookService->getSummary($ledgerId, $financialYear->id, $fromDate, $toDate, $filters);
+        }
 
         $closingBalanceSigned = $openingBalance['signed_amount'] + $summary['receipts'] - $summary['payments'];
         $closingBalance = [
@@ -189,11 +227,12 @@ class BankBookController extends Controller
     public function export(Request $request)
     {
         $data = $this->getReportData($request);
-        $filename = "bank_book_" . str_replace(' ', '_', strtolower($data['ledgerName'])) . "_" . date('Ymd_His') . ".csv";
+        $safeName = preg_replace('/[^A-Za-z0-9_\-]/', '_', str_replace(' ', '_', strtolower($data['ledgerName'])));
+        $filename = "bank_book_" . $safeName . "_" . date('Ymd_His') . ".csv";
 
         $headers = [
-            "Content-type"        => "text/csv",
-            "Content-Disposition" => "attachment; filename=$filename",
+            "Content-type"        => "text/csv; charset=UTF-8",
+            "Content-Disposition" => "attachment; filename=\"$filename\"",
             "Pragma"              => "no-cache",
             "Cache-Control"       => "must-revalidate, post-check=0, pre-check=0",
             "Expires"             => "0"
@@ -206,14 +245,15 @@ class BankBookController extends Controller
 
         $callback = function() use($data, $columns) {
             $file = fopen('php://output', 'w');
+            fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF)); // UTF-8 BOM
             fputcsv($file, $columns);
             
-            // Opening balance
+            // Opening balance row
             $obRow = [
                 \Carbon\Carbon::parse($data['fromDate'])->format('d-m-Y'),
                 'OB',
                 'Opening',
-                'Opening Balance'
+                'Opening Balance b/f'
             ];
             if ($data['ledgerId'] === 'all') $obRow[] = '-';
             
@@ -257,10 +297,12 @@ class BankBookController extends Controller
     public function pdf(Request $request)
     {
         $data = $this->getReportData($request);
+        $safeName = preg_replace('/[^A-Za-z0-9_\-]/', '_', str_replace(' ', '_', strtolower($data['ledgerName'])));
         
         if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class)) {
             $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('admin.bank-book.pdf', $data);
-            return $pdf->download("bank_book_" . str_replace(' ', '_', strtolower($data['ledgerName'])) . ".pdf");
+            $pdf->setPaper('a4', 'landscape');
+            return $pdf->stream("bank_book_{$safeName}.pdf");
         }
         
         return view('admin.bank-book.pdf', $data);

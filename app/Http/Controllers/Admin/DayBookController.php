@@ -34,7 +34,12 @@ class DayBookController extends Controller
         if ($financialYear) {
             $fyId = $financialYear->id;
             $defaultFrom = $financialYear->start_date->format('Y-m-d');
-            $defaultTo = min($financialYear->end_date, Carbon::now())->format('Y-m-d');
+            $now = Carbon::now();
+            if ($now < $financialYear->start_date || $now > $financialYear->end_date) {
+                $defaultTo = $financialYear->end_date->format('Y-m-d');
+            } else {
+                $defaultTo = $now->format('Y-m-d');
+            }
         } else {
             $defaultFrom = date('Y-m-d');
             $defaultTo = date('Y-m-d');
@@ -88,12 +93,42 @@ class DayBookController extends Controller
 
     public function getReportData(Request $request, $isExport = false)
     {
+        $financialYears = FinancialYear::orderBy('start_date', 'desc')->get();
+        
         $fyId = $request->input('financial_year_id');
         $financialYear = $fyId ? FinancialYear::find($fyId) : $this->financialYearService->getCurrentFinancialYear();
         
-        $fromDate = $request->input('from_date');
-        $toDate = $request->input('to_date');
-        
+        if (!$financialYear) {
+            $financialYear = $financialYears->first();
+        }
+
+        if ($financialYear) {
+            $fyId = $financialYear->id;
+            $defaultFrom = $financialYear->start_date->format('Y-m-d');
+            $now = Carbon::now();
+            if ($now < $financialYear->start_date || $now > $financialYear->end_date) {
+                $defaultTo = $financialYear->end_date->format('Y-m-d');
+            } else {
+                $defaultTo = $now->format('Y-m-d');
+            }
+        } else {
+            $defaultFrom = date('Y-m-d');
+            $defaultTo = date('Y-m-d');
+        }
+
+        $fromDate = $request->input('from_date', $defaultFrom);
+        $toDate = $request->input('to_date', $defaultTo);
+
+        // Ensure dates are within FY
+        if ($financialYear) {
+            if ($fromDate < $financialYear->start_date->format('Y-m-d')) {
+                $fromDate = $financialYear->start_date->format('Y-m-d');
+            }
+            if ($toDate > $financialYear->end_date->format('Y-m-d')) {
+                $toDate = $financialYear->end_date->format('Y-m-d');
+            }
+        }
+
         $filters = [
             'voucher_type' => $request->input('voucher_type'),
             'ledger_id' => $request->input('ledger_id'),
@@ -116,8 +151,8 @@ class DayBookController extends Controller
         $filename = "day_book_" . date('Ymd_His') . ".csv";
 
         $headers = [
-            "Content-type"        => "text/csv",
-            "Content-Disposition" => "attachment; filename=$filename",
+            "Content-type"        => "text/csv; charset=UTF-8",
+            "Content-Disposition" => "attachment; filename=\"$filename\"",
             "Pragma"              => "no-cache",
             "Cache-Control"       => "must-revalidate, post-check=0, pre-check=0",
             "Expires"             => "0"
@@ -125,6 +160,7 @@ class DayBookController extends Controller
 
         $callback = function() use($data) {
             $file = fopen('php://output', 'w');
+            fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF)); // UTF-8 BOM
             fputcsv($file, ['Date', 'Voucher Number', 'Type', 'Particulars', 'Debit', 'Credit', 'Narration', 'Reference']);
 
             $report = $data['report'];
@@ -150,7 +186,7 @@ class DayBookController extends Controller
                         '',
                         '',
                         '',
-                        $entry->ledger->name,
+                        $entry->ledger ? $entry->ledger->name : '-',
                         $dr,
                         $cr,
                         '',
@@ -174,7 +210,8 @@ class DayBookController extends Controller
         
         if (class_exists(\Barryvdh\DomPDF\Facade\Pdf::class)) {
             $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('admin.day-book.pdf', $data);
-            return $pdf->download("day_book.pdf");
+            $pdf->setPaper('a4', 'landscape');
+            return $pdf->stream("day_book_" . date('Ymd_His') . ".pdf");
         }
         
         return view('admin.day-book.pdf', $data);

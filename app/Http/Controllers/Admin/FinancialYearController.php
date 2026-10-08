@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\FinancialYear;
 use App\Services\FinancialYearService;
-use Exception;
+use Illuminate\Validation\Rule;
+use Carbon\Carbon;
+use Throwable;
 
 class FinancialYearController extends Controller
 {
@@ -33,20 +35,30 @@ class FinancialYearController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => 'required|string|max:255|unique:financial_years,name',
             'start_date' => 'required|date|before:end_date',
             'end_date' => 'required|date|after:start_date'
         ]);
 
         try {
-            $this->service->validateOverlap($request->start_date, $request->end_date);
-            FinancialYear::create($request->only(['name', 'start_date', 'end_date']));
-            
-            // Log creation
-            activity()->log("Created Financial Year: {$request->name}");
+            $startDate = Carbon::parse($request->start_date)->format('Y-m-d');
+            $endDate = Carbon::parse($request->end_date)->format('Y-m-d');
 
-            return redirect()->route('financial-years.index')->with('success', 'Financial Year created.');
-        } catch (Exception $e) {
+            $this->service->validateOverlap($startDate, $endDate);
+            
+            $fy = FinancialYear::create([
+                'name' => trim($request->name),
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+            ]);
+            
+            // Log creation safely
+            if (function_exists('activity')) {
+                activity()->log("Created Financial Year: {$fy->name}");
+            }
+
+            return redirect()->route('financial-years.index')->with('success', 'Financial Year created successfully.');
+        } catch (Throwable $e) {
             return back()->withInput()->with('error', $e->getMessage());
         }
     }
@@ -64,43 +76,70 @@ class FinancialYearController extends Controller
     public function update(Request $request, FinancialYear $financialYear)
     {
         $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('financial_years', 'name')->ignore($financialYear->id)
+            ],
             'start_date' => 'required|date|before:end_date',
             'end_date' => 'required|date|after:start_date'
         ]);
 
         try {
-            $this->service->validateOverlap($request->start_date, $request->end_date, $financialYear->id);
-            $financialYear->update($request->only(['name', 'start_date', 'end_date']));
-            
-            activity()->log("Updated Financial Year: {$financialYear->name}");
+            $startDate = Carbon::parse($request->start_date)->format('Y-m-d');
+            $endDate = Carbon::parse($request->end_date)->format('Y-m-d');
 
-            return redirect()->route('financial-years.index')->with('success', 'Financial Year updated.');
-        } catch (Exception $e) {
+            $this->service->validateOverlap($startDate, $endDate, $financialYear->id);
+            
+            $financialYear->update([
+                'name' => trim($request->name),
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+            ]);
+            
+            // Log update safely
+            if (function_exists('activity')) {
+                activity()->log("Updated Financial Year: {$financialYear->name}");
+            }
+
+            return redirect()->route('financial-years.index')->with('success', 'Financial Year updated successfully.');
+        } catch (Throwable $e) {
             return back()->withInput()->with('error', $e->getMessage());
         }
     }
 
     public function destroy(FinancialYear $financialYear)
     {
-        // Block deletion if there are entries or vouchers
-        $vouchersCount = \App\Models\Voucher::where('financial_year_id', $financialYear->id)->count();
-        if ($vouchersCount > 0) {
-            return back()->with('error', 'Cannot delete financial year because it contains accounting vouchers.');
-        }
+        try {
+            // Block deletion if there are entries or vouchers
+            $vouchersCount = \App\Models\Voucher::where('financial_year_id', $financialYear->id)->count();
+            if ($vouchersCount > 0) {
+                return back()->with('error', 'Cannot delete financial year because it contains accounting vouchers.');
+            }
 
-        $financialYear->delete();
-        activity()->log("Deleted Financial Year: {$financialYear->name}");
-        return redirect()->route('financial-years.index')->with('success', 'Financial Year deleted.');
+            $name = $financialYear->name;
+            $financialYear->delete();
+            
+            if (function_exists('activity')) {
+                activity()->log("Deleted Financial Year: {$name}");
+            }
+            
+            return redirect()->route('financial-years.index')->with('success', 'Financial Year deleted successfully.');
+        } catch (Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
     }
 
     public function activate(FinancialYear $financialYear)
     {
         try {
             $this->service->activateFinancialYear($financialYear);
-            activity()->log("Activated Financial Year: {$financialYear->name}");
+            if (function_exists('activity')) {
+                activity()->log("Activated Financial Year: {$financialYear->name}");
+            }
             return back()->with('success', 'Financial Year activated successfully.');
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             return back()->with('error', $e->getMessage());
         }
     }
@@ -109,9 +148,11 @@ class FinancialYearController extends Controller
     {
         try {
             $this->service->closeFinancialYear($financialYear);
-            activity()->log("Closed Financial Year: {$financialYear->name}");
+            if (function_exists('activity')) {
+                activity()->log("Closed Financial Year: {$financialYear->name}");
+            }
             return back()->with('success', 'Financial Year closed successfully.');
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             return back()->with('error', $e->getMessage());
         }
     }
@@ -120,10 +161,13 @@ class FinancialYearController extends Controller
     {
         try {
             $this->service->reopenFinancialYear($financialYear);
-            activity()->log("Reopened Financial Year: {$financialYear->name}");
+            if (function_exists('activity')) {
+                activity()->log("Reopened Financial Year: {$financialYear->name}");
+            }
             return back()->with('success', 'Financial Year reopened successfully.');
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             return back()->with('error', $e->getMessage());
         }
     }
 }
+

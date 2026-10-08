@@ -31,7 +31,25 @@ class FinancialYearService
             ->first();
 
         if (!$finYear) {
-            throw new Exception("No valid Financial Year found for date: {$parsedDate}");
+            $year = (int)date('Y', strtotime($parsedDate));
+            $month = (int)date('m', strtotime($parsedDate));
+            if ($month >= 4) {
+                $startYear = $year;
+                $endYear = $year + 1;
+            } else {
+                $startYear = $year - 1;
+                $endYear = $year;
+            }
+            $name = "{$startYear}-" . substr($endYear, -2);
+            $finYear = FinancialYear::firstOrCreate(
+                ['name' => $name],
+                [
+                    'start_date' => "{$startYear}-04-01 00:00:00",
+                    'end_date' => "{$endYear}-03-31 23:59:59",
+                    'is_active' => true,
+                    'is_closed' => false,
+                ]
+            );
         }
 
         return $finYear;

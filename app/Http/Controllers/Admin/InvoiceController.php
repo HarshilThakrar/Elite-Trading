@@ -205,10 +205,10 @@ class InvoiceController extends Controller
             $fpdi->useTemplate($invoiceTpl, 0, 0, 210);
         }
 
-        $finalPdfOutput = $fpdi->Output('S');
+        $safeNum = str_replace(['/', '\\', ' '], ['-', '-', '_'], $invoice->invoice_number ?? (string)$invoice->id);
         
         return response($finalPdfOutput)
             ->header('Content-Type', 'application/pdf')
-            ->header('Content-Disposition', 'attachment; filename="Invoice_' . $invoice->invoice_number . '.pdf"');
+            ->header('Content-Disposition', 'attachment; filename="Invoice_' . $safeNum . '.pdf"');
     }
 }

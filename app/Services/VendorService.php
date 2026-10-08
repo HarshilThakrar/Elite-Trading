@@ -4,6 +4,10 @@ namespace App\Services;
 
 use App\Repositories\VendorRepositoryInterface;
 
+use App\Models\Ledger;
+use App\Models\PurchasePlanItem;
+use Illuminate\Support\Facades\DB;
+
 class VendorService extends BaseService
 {
     protected $vendorRepository;
@@ -55,6 +59,41 @@ class VendorService extends BaseService
 
     public function deleteVendor($id)
     {
-        return $this->vendorRepository->delete($id);
+        $vendor = $this->getVendorById($id);
+
+        $hasPurchases = $vendor->purchases()->exists();
+        $hasPurchasePlans = PurchasePlanItem::where('suggested_vendor_id', $vendor->id)->exists();
+        $ledger = Ledger::where('type', 'vendor')->where('reference_id', $vendor->id)->first();
+        $hasTransactions = $ledger && $ledger->entries()->exists();
+
+        // If vendor has linked records, cannot hard-delete without breaking DB constraints/audit
+        if ($hasPurchases || $hasPurchasePlans || $hasTransactions) {
+            $alreadyInactive = !$vendor->status;
+            $vendor->update(['status' => false]);
+            if ($ledger) {
+                $ledger->update(['is_active' => false]);
+            }
+
+            return [
+                'status' => 'deactivated',
+                'already_inactive' => $alreadyInactive,
+                'vendor' => $vendor,
+                'hasPurchases' => $hasPurchases,
+                'hasTransactions' => $hasTransactions,
+            ];
+        }
+
+        // Clean hard-delete
+        DB::transaction(function () use ($vendor, $ledger) {
+            if ($ledger) {
+                $ledger->delete();
+            }
+            $vendor->delete();
+        });
+
+        return [
+            'status' => 'deleted',
+            'vendor' => $vendor,
+        ];
     }
 }

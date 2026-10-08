@@ -23,6 +23,7 @@ Route::middleware(['auth'])->group(function () {
     
     // Reports
     Route::get('/reports/monthly-sales', [\App\Http\Controllers\Admin\ReportController::class, 'monthlySales'])->name('reports.monthlySales');
+    Route::post('/reports/monthly-sales/import', [\App\Http\Controllers\Admin\ReportController::class, 'importHistoricalSales'])->name('reports.monthlySales.import');
     Route::get('/reports/monthly-purchases', [\App\Http\Controllers\Admin\ReportController::class, 'monthlyPurchases'])->name('reports.monthlyPurchases');
     Route::get('/reports/sales', [\App\Http\Controllers\Admin\ReportController::class, 'sales'])->name('reports.sales');
     Route::get('/reports/purchases', [\App\Http\Controllers\Admin\ReportController::class, 'purchases'])->name('reports.purchases');
@@ -36,12 +37,18 @@ Route::middleware(['auth'])->group(function () {
     Route::post('customers/check-name', [\App\Http\Controllers\Admin\CustomerController::class, 'checkName'])->name('customers.checkName');
     Route::resource('customers', \App\Http\Controllers\Admin\CustomerController::class);
     Route::get('/customer-overview', [\App\Http\Controllers\Admin\CustomerOverviewController::class, 'index'])->name('customer-overview.index');
+
+    // Lead Management
+    Route::post('leads/{lead}/remarks', [\App\Http\Controllers\Admin\LeadController::class, 'addRemark'])->name('leads.remarks.store');
+    Route::post('leads/{lead}/convert', [\App\Http\Controllers\Admin\LeadController::class, 'convertCustomer'])->name('leads.convert');
+    Route::resource('leads', \App\Http\Controllers\Admin\LeadController::class);
     
     
     Route::get('products/{product}/average-purchase-rate', [\App\Http\Controllers\Admin\ProductController::class, 'getAveragePurchaseRate'])->name('products.averagePurchaseRate');
     Route::get('products/{product}/purchase-history', [\App\Http\Controllers\Admin\ProductController::class, 'getPurchaseHistory'])->name('products.purchaseHistory');
     Route::get('vendors/import/sample', [\App\Http\Controllers\Admin\VendorController::class, 'downloadSample'])->name('vendors.import.sample');
     Route::post('vendors/import', [\App\Http\Controllers\Admin\VendorController::class, 'import'])->name('vendors.import');
+    Route::post('vendors/{vendor}/toggle-status', [\App\Http\Controllers\Admin\VendorController::class, 'toggleStatus'])->name('vendors.toggleStatus');
     Route::resource('vendors', \App\Http\Controllers\Admin\VendorController::class);
     
     Route::resource('product-groups', \App\Http\Controllers\Admin\ProductGroupController::class);
@@ -175,6 +182,8 @@ Route::middleware(['auth'])->group(function () {
     
     // Purchase Vouchers
     Route::get('purchase-vouchers/select-po', [\App\Http\Controllers\Admin\PurchaseVoucherController::class, 'selectPo'])->name('purchase-vouchers.select-po');
+    Route::post('purchase-vouchers/create-direct-po', [\App\Http\Controllers\Admin\PurchaseVoucherController::class, 'createDirectPo'])->name('purchase-vouchers.create-direct-po');
+    Route::post('purchase-vouchers/sync-excel', [\App\Http\Controllers\Admin\PurchaseVoucherController::class, 'syncExcel'])->name('purchase-vouchers.sync-excel');
     Route::get('purchase-vouchers/create/{purchase}', [\App\Http\Controllers\Admin\PurchaseVoucherController::class, 'create'])->name('purchase-vouchers.create');
     Route::post('purchase-vouchers/store/{purchase}', [\App\Http\Controllers\Admin\PurchaseVoucherController::class, 'store'])->name('purchase-vouchers.store');
     Route::post('purchase-vouchers/{purchase_voucher}/cancel', [\App\Http\Controllers\Admin\PurchaseVoucherController::class, 'cancel'])->name('purchase-vouchers.cancel');
@@ -242,6 +251,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('export-sharing', [\App\Http\Controllers\Admin\ExportController::class, 'index'])->name('export-sharing.index');
     Route::get('export-sharing/sales', [\App\Http\Controllers\Admin\ExportController::class, 'exportSales'])->name('export.sales');
     Route::get('export-sharing/customers', [\App\Http\Controllers\Admin\ExportController::class, 'exportCustomers'])->name('export.customers');
+    Route::get('export-sharing/vendors', [\App\Http\Controllers\Admin\ExportController::class, 'exportVendors'])->name('export.vendors');
     Route::get('export-sharing/products', [\App\Http\Controllers\Admin\ExportController::class, 'exportProducts'])->name('export.products');
     Route::get('export-sharing/purchases', [\App\Http\Controllers\Admin\ExportController::class, 'exportPurchases'])->name('export.purchases');
 

@@ -150,7 +150,7 @@
         </div>
     </div>
 
-    <div class="col-md-3">
+    <div class="col-md-3 print-hide">
         <div class="card card-custom sticky-top" style="top: 20px;">
             <div class="card-header bg-white p-3 border-bottom">
                 <h6 class="mb-0 fw-bold">Actions</h6>
@@ -158,8 +158,9 @@
             <div class="card-body">
 
                 
-                <button class="btn btn-light w-100 mb-3 text-start" onclick="window.print()"><i class="bi bi-printer me-2"></i> Print Invoice</button>
-                <a href="{{ route('sales.pdf', $sale->id) }}" class="btn btn-danger w-100 mb-3 text-start"><i class="bi bi-file-pdf me-2"></i> Download PDF</a>
+                <button class="btn btn-light w-100 mb-2 text-start" onclick="window.print()"><i class="bi bi-printer me-2"></i> Print Invoice</button>
+                <a href="{{ route('sales.pdf', $sale->id) }}" class="btn btn-danger w-100 mb-2 text-start" target="_blank" download><i class="bi bi-file-earmark-pdf me-2"></i> Download PDF</a>
+                <a href="{{ route('sales.pdf', ['sale' => $sale->id, 'preview' => 1]) }}" class="btn btn-outline-danger w-100 mb-3 text-start" target="_blank"><i class="bi bi-eye me-2"></i> Preview PDF in Tab</a>
                 <button type="button" id="downloadImageBtn" class="btn btn-info w-100 mb-3 text-start text-white"><i class="bi bi-image me-2"></i> Download Image</button>
                 
                 @if($sale->status == 'Draft')

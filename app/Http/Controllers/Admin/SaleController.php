@@ -104,11 +104,36 @@ class SaleController extends Controller
 
     public function generatePdf($id, Request $request)
     {
-        $sale = $this->saleService->getSaleById($id);
-        $is_einvoice = $request->input('type') == 'einvoice';
-        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('admin.sales.pdf', compact('sale', 'is_einvoice'));
-        $pdf->setPaper('A4', 'portrait');
-        return $pdf->download('Sales_Order_' . $sale->invoice_number . '.pdf');
+        try {
+            $sale = $this->saleService->getSaleById($id);
+            if (!$sale) {
+                return redirect()->route('sales.index')->with('error', 'Sale record not found.');
+            }
+
+            $sale->loadMissing(['customer', 'items.product']);
+            $is_einvoice = $request->input('type') == 'einvoice';
+
+            $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('admin.sales.pdf', compact('sale', 'is_einvoice'));
+            $pdf->setPaper('A4', 'portrait');
+            $pdf->setOptions([
+                'isHtml5ParserEnabled' => true,
+                'isRemoteEnabled' => true,
+                'defaultFont' => 'DejaVu Sans',
+            ]);
+
+            // Sanitize filename for Windows & browser compatibility (remove forward slashes)
+            $safeNumber = str_replace(['/', '\\', ' '], ['-', '-', '_'], $sale->invoice_number ?? (string)$sale->id);
+            $filename = 'Sales_Order_' . $safeNumber . '.pdf';
+
+            if ($request->has('preview') || $request->has('view')) {
+                return $pdf->stream($filename);
+            }
+
+            return $pdf->download($filename);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Sales PDF Error: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'PDF generate karne me issue aaya: ' . $e->getMessage());
+        }
     }
 
     public function destroy($id)

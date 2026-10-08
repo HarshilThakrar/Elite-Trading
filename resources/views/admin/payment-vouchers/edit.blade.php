@@ -161,7 +161,7 @@
                     <button type="button" class="btn btn-light px-4 me-2" onclick="submitForm('draft')">
                         <i class="ph ph-floppy-disk"></i> Update Draft
                     </button>
-                    <button type="button" class="btn btn-primary px-4" :disabled="!isValid" onclick="submitForm('post')">
+                    <button type="button" class="btn btn-primary px-4" onclick="submitForm('post')">
                         <i class="ph ph-paper-plane-right"></i> Update & Post
                     </button>
                 </div>

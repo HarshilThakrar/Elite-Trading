@@ -4,6 +4,51 @@
 @section('header_title', 'Vendors')
 
 @section('content')
+@if(session('success'))
+    <div class="alert alert-success alert-dismissible fade show mb-3" role="alert">
+        <i class="bi bi-check-circle-fill me-2"></i> {{ session('success') }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+@endif
+@if(session('warning'))
+    <div class="alert alert-warning alert-dismissible fade show mb-3" role="alert">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i> {{ session('warning') }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+@endif
+@if(session('error'))
+    <div class="alert alert-danger alert-dismissible fade show mb-3" role="alert">
+        <i class="bi bi-x-circle-fill me-2"></i> {{ session('error') }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+@endif
+
+<style>
+    .action-btn-group {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        flex-wrap: nowrap;
+        white-space: nowrap;
+    }
+    .action-btn-group .btn {
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        flex-shrink: 0;
+    }
+    .action-btn-group form {
+        display: inline-flex;
+        margin: 0;
+        padding: 0;
+    }
+</style>
+
 <div class="card card-custom">
     <div class="card-header bg-white d-flex justify-content-between align-items-center p-3">
         <h5 class="mb-0 fw-bold text-primary-custom">Vendor List</h5>
@@ -17,42 +62,59 @@
         </div>
     </div>
     <div class="card-body">
-        <div class="data-table">
-            <table id="vendorsTable" class="data-table">
-                <thead class="data-table">
+        <div class="table-responsive">
+            <table id="vendorsTable" class="table table-hover align-middle mb-0 w-100">
+                <thead class="table-light">
                     <tr>
-                        <th>Code</th>
-                        <th>Company Name</th>
-                        <th>Contact Person</th>
-                        <th>Mobile</th>
-                        <th>Lead Time (Days)</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th class="text-nowrap">Code</th>
+                        <th class="text-nowrap">Company Name</th>
+                        <th class="text-nowrap">Contact Person</th>
+                        <th class="text-nowrap">Mobile</th>
+                        <th class="text-center text-nowrap">Lead Time (Days)</th>
+                        <th class="text-center text-nowrap">Status</th>
+                        <th class="text-center text-nowrap" style="width: 130px; min-width: 130px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach($vendors as $vendor)
                     <tr>
-                        <td>{{ $vendor->vendor_code }}</td>
-                        <td>{{ $vendor->company_name }}</td>
-                        <td>{{ $vendor->contact_person }}</td>
-                        <td>{{ $vendor->mobile }}</td>
-                        <td>{{ $vendor->lead_time_days }}</td>
+                        <td class="text-nowrap fw-semibold">{{ $vendor->vendor_code }}</td>
                         <td>
-                            @if($vendor->status)
-                                <span class="badge bg-success text-white px-2 py-1 rounded-pill">Active</span>
-                            @else
-                                <span class="badge bg-danger text-white px-2 py-1 rounded-pill">Inactive</span>
-                            @endif
+                            <a href="{{ route('vendors.show', $vendor->id) }}" class="fw-semibold text-primary-custom text-decoration-none">
+                                {{ $vendor->company_name }}
+                            </a>
                         </td>
-                        <td>
-                            <a href="{{ route('vendors.show', $vendor->id) }}" class="btn btn-sm btn-info text-white"><i class="bi bi-eye"></i></a>
-                            <a href="{{ route('vendors.edit', $vendor->id) }}" class="btn btn-sm btn-warning text-white"><i class="bi bi-pencil"></i></a>
-                            <form action="{{ route('vendors.destroy', $vendor->id) }}" method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this vendor?');">
+                        <td>{{ $vendor->contact_person ?? 'N/A' }}</td>
+                        <td class="text-nowrap">{{ $vendor->mobile }}</td>
+                        <td class="text-center">{{ $vendor->lead_time_days }}</td>
+                        <td class="text-center text-nowrap">
+                            <form action="{{ route('vendors.toggleStatus', $vendor->id) }}" method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to {{ $vendor->status ? 'deactivate' : 'activate' }} this vendor?');">
                                 @csrf
-                                @method('DELETE')
-                                <button type="submit" class="btn btn-sm btn-danger"><i class="bi bi-trash"></i></button>
+                                <button type="submit" class="border-0 bg-transparent p-0" title="Click to {{ $vendor->status ? 'Deactivate' : 'Activate' }}">
+                                    @if($vendor->status)
+                                        <span class="badge bg-success text-white px-2 py-1 rounded-pill" style="cursor: pointer;"><i class="bi bi-check-circle-fill me-1"></i>Active</span>
+                                    @else
+                                        <span class="badge bg-danger text-white px-2 py-1 rounded-pill" style="cursor: pointer;"><i class="bi bi-x-circle-fill me-1"></i>Inactive</span>
+                                    @endif
+                                </button>
                             </form>
+                        </td>
+                        <td class="text-center text-nowrap" style="width: 130px; min-width: 130px;">
+                            <div class="action-btn-group">
+                                <a href="{{ route('vendors.show', $vendor->id) }}" class="btn btn-sm btn-info text-white shadow-sm" title="View Vendor">
+                                    <i class="bi bi-eye"></i>
+                                </a>
+                                <a href="{{ route('vendors.edit', $vendor->id) }}" class="btn btn-sm btn-warning text-white shadow-sm" title="Edit Vendor">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                                <form action="{{ route('vendors.destroy', $vendor->id) }}" method="POST" class="d-inline m-0 p-0" onsubmit="return confirm('Are you sure you want to delete vendor \'{{ addslashes($vendor->company_name) }}\'?\n\nNote: If this vendor has existing purchase records or bills, it will be safely deactivated to protect audit history.');">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="btn btn-sm btn-danger shadow-sm" title="Delete Vendor">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                            </div>
                         </td>
                     </tr>
                     @endforeach
@@ -98,7 +160,12 @@
 @push('scripts')
 <script>
     $(document).ready(function() {
-        $('#vendorsTable').DataTable();
+        $('#vendorsTable').DataTable({
+            autoWidth: false,
+            columnDefs: [
+                { orderable: false, targets: [6] }
+            ]
+        });
     });
 </script>
 @endpush
